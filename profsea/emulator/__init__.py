@@ -90,12 +90,12 @@ class GMSLREmulator:
             nt: int=450,
             nm: int=1000,
             tcv: float=1.0,
-            glaciermip: bool|int=False,
+            glaciermip: bool|int=2,
             input_ensemble: bool=True,
             T_percentile_95: np.ndarray=None,
             OHC_percentile_95: np.ndarray=None,
             cum_emissions_total: np.ndarray=None,
-            palmer_method: bool=False) -> None:
+            palmer_method: bool=True) -> None:
         
         np.random.seed(None if seed is None else seed)
         self.T_change = T_change
@@ -148,9 +148,9 @@ class GMSLREmulator:
             'ssp126', 'ssp245', 'ssp585'] and self.cum_emissions_total is None:
             raise ValueError(
                 'If the scenario is not rcp26, rcp45, rcp85, ssp126, ssp245 or ssp585, '
-                'you must provide the total \ncumulative emissions from 2015 to the end '
-                'of the scenario using the cum_emissions_total keyword argument.\n'
-                'This is required to calculate the Antarctic dynamic contribution to GMSLR.')
+                'you must provide the total \ncumulative emissions from 2015 to 2100 '
+                'using the cum_emissions_total keyword argument. This is required \n'
+                'to calculate the Antarctic dynamic contribution to GMSLR.')
     
     def get_components(self) -> dict:
         """Get all GMSLR components as a dictionary."""
@@ -199,7 +199,6 @@ class GMSLREmulator:
         None
         """
         T_ens, Exp_ens, T_int_ens, T_int_med = self.calculate_drivers() 
-
         self.expansion = np.tile(Exp_ens, (self.nm, 1))
         fraction = np.random.rand(self.nm * self.nt) # correlation between antsmb and antdyn
         
@@ -304,7 +303,6 @@ class GMSLREmulator:
         T_ens = z[:, np.newaxis] * T_std + T_med
         therm_ens = z[:, np.newaxis] * therm_std + therm_med
         T_int_ens = z[:, np.newaxis] * T_int_std + T_int_med
-        
         return T_ens, therm_ens, T_int_ens, T_int_med  
 
     def project_glacier(
@@ -365,11 +363,9 @@ class GMSLREmulator:
             cvgl=0.20 # random methodological error
             
         ngl=len(glparm) # number of glacier methods
-        if self.nm%ngl:
-            raise ValueError('number of realisations '+\
-            'must be a multiple of number of glacier methods')
             
-        nrpergl = self.nm // ngl
+        r_per_model = self.nm // ngl
+        r_remainder = self.nm % ngl
         r = np.random.standard_normal(self.nm)
         r = r[:, np.newaxis, np.newaxis]
         
@@ -379,21 +375,23 @@ class GMSLREmulator:
         cvgl_all = np.array([glparm[igl]['cvgl'] if self.glaciermip else cvgl for igl in range(ngl)])
 
         # Make an ensemble of projections for each method
+        current_ensemble_idx = 0
         for igl in range(ngl):
             mgl = mgl_all[igl]
             zgl = zgl_all[igl]
             cvgl = cvgl_all[igl]
             
-            ifirst = igl * nrpergl
-            ilast = ifirst + nrpergl
+            num_reals_for_model_i = r_per_model + 1 if igl < r_remainder else r_per_model
+            ifirst = current_ensemble_idx
+            ilast = current_ensemble_idx + num_reals_for_model_i
 
             glacier[ifirst:ilast, ...] = zgl + (mgl * r[ifirst:ilast] * cvgl)
+            current_ensemble_idx = ilast
 
         glacier += dmz
         np.clip(glacier, None, glmass, out=glacier)
         
         glacier = glacier.reshape(glacier.shape[0]*glacier.shape[1], glacier.shape[2])
-
         return glacier
 
     def _project_glacier1(
@@ -454,7 +452,6 @@ class GMSLREmulator:
         greensmb += (1 - self.fgreendyn) * self.dgreen
 
         greensmb = greensmb.reshape(greensmb.shape[0]*greensmb.shape[1], greensmb.shape[2])
-
         return greensmb
 
     def _fettweis(self, ztgreen: np.ndarray) -> np.ndarray:
@@ -514,12 +511,12 @@ class GMSLREmulator:
         z = z[:, :, np.newaxis]
         antsmb = z * T_int_ens
         antsmb = antsmb.reshape(antsmb.shape[0] * antsmb.shape[1], antsmb.shape[2])
-
         return antsmb
 
     def project_greenland_AR6(self, T_ens: np.ndarray) -> np.ndarray:
         """Project Greenland ice-sheet contribution to GMSLR.
         This follows the IPCC AR6 methodology as closely as possible.
+        Projections are relative to 1996-2014 baseline.
         
         Returns
         -------
@@ -646,7 +643,6 @@ class GMSLREmulator:
 
             # For SMB+dyn during 2005-2010 Table 4.6 gives 0.41+-0.24 mm yr-1 (5-95% range)
             # For dyn at 2100 Chapter 13 gives [-20,185] mm for all scenarios
-
         return self.time_projection(0.41, 0.20, final, fraction=fraction) + self.dant
 
     def project_landwater(self) -> np.ndarray:
