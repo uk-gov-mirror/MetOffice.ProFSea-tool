@@ -2,3 +2,4 @@
 *__pycache__*
 profsea.egg-info
 data/
+*.DS_Store
