@@ -2,21 +2,21 @@
 Copyright (c) 2023, Met Office
 All rights reserved.
 """
-
-import os
-import iris
-import glob
-import pickle
-import numpy as np
-import pandas as pd
-from scipy.interpolate import RegularGridInterpolator
-from netCDF4 import Dataset
-import xarray as xr
 import dask.array as da
+import glob
+import iris
+import json
+from netCDF4 import Dataset
+import numpy as np
+import os
+import pickle
+from scipy.interpolate import RegularGridInterpolator
+import xarray as xr
 
 from profsea.config import settings
-from profsea.slr_pkg import choose_montecarlo_dir  # found in __init.py__
 from profsea.directories import read_dir, makefolder
+from profsea.emulator import GMSLREmulator
+from profsea.slr_pkg import choose_montecarlo_dir  # found in __init.py__
 
 
 def calc_baseline_period(yrs: np.array) -> float:
@@ -84,6 +84,7 @@ def calc_gia_contribution(
     :param coords: coordinates of location of interest
     :return: GIA estimates converted to mm/yr
     """
+    print('Calculating GIA contribution...')
     nGIA, GIA_vals = read_gia_estimates()
     Tdelta = calc_baseline_period(yrs)
 
@@ -96,9 +97,7 @@ def calc_gia_contribution(
 
     GIA_T = da.from_array(GIA_unit_series)
     GIA_vals = da.from_array(GIA_vals)
-
     GIA_series = GIA_T[:, :, None, None] * GIA_vals[rgiai, None, :, :]
-
     GIA_series = GIA_series.compute()
 
     file_header = '_'.join(['gia', scenario, "projection", 
@@ -110,21 +109,23 @@ def calc_gia_contribution(
 
 
 def calc_expansion_contribution(
-        scenario: str, nsmps: int, nyrs: int) -> da.array:
+        scenario: str, nsmps: int) -> da.array:
     """
     Calculate the thermal expansion contribution to the regional component of
     sea level rise.
     :param scenario: emission scenario
     :param nsmps: determine the number of samples
-    :param nyrs: number of years in each projection time series
     :return: expansion estimates converted to mm/yr
     """
     # Select slope coefficients based on the MIP
-    if settings["cmipinfo"]["mip"] == "CMIP6":
-        coeffs = load_CMIP6_slopes('ssp585')
-        coeffs = np.roll(coeffs, 180, axis=2)
+    if settings["emulator_settings"]["emulator_mode"]:
+        if settings["cmipinfo"]["mip"] == "CMIP6":
+            coeffs = load_CMIP6_slopes('ssp585')
+            coeffs = np.roll(coeffs, 180, axis=2)
+        else:
+            coeffs = load_CMIP5_slope_coeffs('rcp85')
     else:
-        coeffs = load_CMIP5_slope_coeffs('rcp85')
+        coeffs = load_CMIP5_slope_coeffs(scenario)
 
     rand_samples = np.random.choice(
         coeffs.shape[0], size=nsmps, replace=True)               
@@ -231,8 +232,8 @@ def calculate_sl_components(
         montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None])
 
         if comp == 'exp':
-            sampled_coeffs = calc_expansion_contribution(scenario, nsmps, nyrs)
-            montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * sampled_coeffs[:, None, :, :]
+            sampled_coeffs = calc_expansion_contribution(scenario, nsmps)
+            montecarlo_R = montecarlo_G * sampled_coeffs[:, None, :, :]
             del sampled_coeffs
 
         elif comp == 'landwater':
@@ -246,6 +247,7 @@ def calculate_sl_components(
 
         # Take the 0th, 25th, 50th, 75th and 100th percentiles
         montecarlo_R = da.percentile(montecarlo_R, [0, 25, 50, 75, 100], axis=0)
+        print('Computing result...')
         montecarlo_R = montecarlo_R.compute()
 
         # Create the output sea level projections file directory and filename
@@ -406,17 +408,59 @@ def setup_FP_interpolators(components: list) -> tuple:
     return nFPs, FPlist
 
 
-def read_csv_file(
-        file_pattern: str, start_yr: int=2007, 
-        end_yr: int=settings["projection_end_year"]) -> np.ndarray:
-    file = glob.glob(
-        os.path.join(
-            settings["emulator_settings"]["emulator_input_dir"], 
-            file_pattern))
-    if not file:
-        raise FileNotFoundError(f'File {file_pattern} not found')
-    df = pd.read_csv(file[0])
-    return df.loc[:, str(start_yr):str(end_yr)].to_numpy()
+def calculate_global_components(scenario: str, palmer_method: bool) -> None:
+    """
+    Calculate the global contributions for each of the sea-level components
+    using the GMSLR module.
+    :param scenario: string representing the scenario being simulated
+    :param palmer_method: boolean to determine whether to use the palmer_method
+    """
+    # Check inputs are correctly set up
+    if not (os.path.exists(settings["scm_data"]["temperature"]) and 
+            os.path.exists(settings["scm_data"]["ocean_heat_content"])):
+        raise Exception(
+            'SCM data paths (temperature and ocean heat content) must be '
+            'correctly configured in user-settings.yml')
+
+    if not os.path.exists(settings["scm_data"]["cumulative_emissions"]):
+        raise Exception('Cumulative emissions path must be correctly configured '
+                        'in user-settings.yml')
+
+    if (settings["scm_data"]["temperature"].split(".")[-1] != 'nc' or
+        settings["scm_data"]["ocean_heat_content"].split(".")[-1] != 'nc'):
+        raise Exception('SCM data must be saved in NetCDF format.')
+
+    percentiles = np.arange(101)
+
+    # Now run the simulations
+    print(f'Projecting global components for {scenario} scenario...')
+    T_change = xr.load_dataarray(settings["scm_data"]["temperature"])
+    OHC_change = xr.load_dataarray(settings["scm_data"]["ocean_heat_content"])
+    with open(settings["scm_data"]["cumulative_emissions"]) as f:
+        cumulative_emissions = json.load(f)
+
+    T_change = T_change.sel(scenario=scenario).data.T
+    OHC_change = OHC_change.sel(scenario=scenario).data.T
+    T_change = np.percentile(T_change, percentiles, axis=0)
+    OHC_change = np.percentile(OHC_change, percentiles, axis=0)
+
+    gmslr = GMSLREmulator(
+        T_change,
+        OHC_change,
+        scenario,
+        os.path.join(settings["baseoutdir"], 'emulator_output'),
+        settings["projection_end_year"],
+        palmer_method=palmer_method,
+        input_ensemble=settings["emulator_settings"]["use_input_ensemble"],
+        output_percentiles=np.arange(101),
+        cum_emissions_total=cumulative_emissions[scenario])
+    gmslr.project()
+
+    print('Saving components...')
+    gmslr.save_components(
+        os.path.join(settings["baseoutdir"], 'emulator_output'),
+        scenario)
+    print('Saved!\n')
 
 
 def main():
@@ -430,44 +474,23 @@ def main():
 
     # Extract site data from station list (e.g. tide gauge location) or
     # construct based on user input
-    print('\nInitiating ProFSea emulator')
-    if settings["projection_end_year"] > 2100:
-        palmer_method = True
+    if settings["emulator_settings"]["emulator_mode"]:
+        print('\nInitiating ProFSea emulator')
+        if settings["projection_end_year"] > 2100:
+            palmer_method = True
+        else:
+            palmer_method = False
+            
+        makefolder(os.path.join(settings["baseoutdir"], 'emulator_output'))
+        
+        # Get the metadata of either the site location or tide gauge location
+        for scenario in settings["emulator_settings"]["emulator_scenario"]:
+            calculate_global_components(scenario, palmer_method)
+            calc_future_sea_level(scenario)
     else:
-        palmer_method = False
-        
-    makefolder(os.path.join(settings["baseoutdir"], 'emulator_output'))
-    
-    # Get the metadata of either the site location or tide gauge location
-    for scenario in settings["emulator_settings"]["emulator_scenario"]:
-        # print(f'Projecting {scenario}...')
-        # T_change = read_csv_file(f'*{scenario}*_temperature*.csv')
-        # OHC_change = read_csv_file(f'*{scenario}*_ocean_heat_content_change*.csv')
-
-        # cum_emissions_file = 'cumulative_scenario_emissions.json'
-        # if glob.glob(os.path.join(settings["emulator_settings"]["emulator_input_dir"], cum_emissions_file)):
-        #     with open('ngfs_data/cumulative_scenario_emissions.json') as f:
-        #         cum_emissions_total = json.load(f)[scenario]
-        # else:
-        #     raise FileNotFoundError('For any non-RCP scenario, a cumulative emissions total must be provided.')
-        
-        # gmslr = GMSLREmulator(
-        #     T_change,
-        #     OHC_change,
-        #     scenario,
-        #     os.path.join(settings["baseoutdir"], 'emulator_output'),
-        #     settings["projection_end_year"],
-        #     palmer_method=palmer_method,
-        #     input_ensemble=settings["emulator_settings"]["use_input_ensemble"],
-        #     cum_emissions_total=cum_emissions_total)
-        # gmslr.project()
-        # print('Saving components...')
-        # gmslr.save_components(
-        #     os.path.join(settings["baseoutdir"], 'emulator_output'),
-        #     scenario)
-        # print('Saved!\n')
-
-        calc_future_sea_level(scenario)
+        scenarios = ['rcp26', 'rcp45', 'rcp85']
+        for scenario in scenarios:
+            calc_future_sea_level(scenario)
 
 
 if __name__ == '__main__':

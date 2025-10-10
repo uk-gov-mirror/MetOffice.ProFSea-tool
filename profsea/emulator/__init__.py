@@ -46,6 +46,9 @@ class GMSLREmulator:
     input_ensemble: bool
         If True, use an input ensemble of temperature and 
         ocean heat content change.
+    output_percentiles: list|np.ndarray
+        If not None, calculate percentiles from a 1D list/array for each 
+        component
     T_percentile_95: np.ndarray
         95th percentile of temperature change timeseries.
     OHC_percentile_95: np.ndarray   
@@ -92,6 +95,7 @@ class GMSLREmulator:
             tcv: float=1.0,
             glaciermip: bool|int=2,
             input_ensemble: bool=True,
+            output_percentiles: list|np.ndarray=None,
             T_percentile_95: np.ndarray=None,
             OHC_percentile_95: np.ndarray=None,
             cum_emissions_total: np.ndarray=None,
@@ -109,6 +113,7 @@ class GMSLREmulator:
         self.tcv = tcv
         self.glaciermip = glaciermip
         self.input_ensemble = input_ensemble
+        self.output_percentiles = output_percentiles
         self.T_percentile_95 = T_percentile_95
         self.OHC_percentile_95 = OHC_percentile_95
         self.cum_emissions_total = cum_emissions_total
@@ -140,7 +145,7 @@ class GMSLREmulator:
         # From Turner et al. (2023)
         self.exp_efficiency = np.random.normal(
             loc=0.113, scale=0.013, size=OHC_change.shape[0]) * 1e-24 # m/YJ
-        
+
         if input_ensemble:
             self.nt = self.T_change.shape[0]
 
@@ -157,14 +162,11 @@ class GMSLREmulator:
         components_dict = {
             'exp': self.expansion,
             'glacier': self.glacier,
-            'greensmb': self.greensmb,
-            'greendyn': self.greendyn,
-            'greennet': self.greennet,
+            'greenland': self.greenland,
             'antsmb': self.antsmb,
             'antdyn': self.antdyn,
             'antnet': self.antnet,
             'landwater': self.landwater,
-            'sheetdyn': self.sheetdyn,
             'gmslr': self.gmslr
         }
         return components_dict
@@ -188,7 +190,7 @@ class GMSLREmulator:
                 os.path.join(
                     output_dir, 
                     f'{scenario_name}_{name}.npy'), 
-                component.T # Transpose to match the shape of original Monte Carlo simulations
+                component
             )
 
     def project(self) -> None:
@@ -203,6 +205,9 @@ class GMSLREmulator:
         fraction = np.random.rand(self.nm * self.nt) # correlation between antsmb and antdyn
         
         self.run_parallel_projections(T_int_med, T_int_ens, T_ens, fraction)
+
+        if self.output_percentiles is not None:
+            self.expansion = np.percentile(self.expansion, self.output_percentiles, axis=0)
         
         self.antnet = self.antsmb + self.antdyn
         self.gmslr = self.glacier + self.greenland + self.antnet + self.landwater + self.expansion
@@ -237,6 +242,14 @@ class GMSLREmulator:
         self.greenland = results['greenland']
         self.antdyn = results['antdyn']
         self.landwater = results['landwater']
+
+        if self.output_percentiles is not None:
+            self.glacier = np.percentile(self.glacier, self.output_percentiles, axis=0)
+            self.antsmb = np.percentile(self.antsmb, self.output_percentiles, axis=0)
+            self.greenland = np.percentile(self.greenland, self.output_percentiles, axis=0)
+            self.antdyn = np.percentile(self.antdyn, self.output_percentiles, axis=0)
+            self.landwater = np.percentile(self.landwater, self.output_percentiles, axis=0)
+
   
     def calculate_drivers(self) -> tuple:
         """Calculate the drivers of GMSLR: temperature change and 
