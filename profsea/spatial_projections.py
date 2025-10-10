@@ -119,10 +119,12 @@ def calc_expansion_contribution(
     """
     # Select slope coefficients based on the MIP
     if settings["emulator_settings"]["emulator_mode"]:
-        if settings["cmipinfo"]["mip"] == "CMIP6":
+        if settings["cmipinfo"]["mip"].lower() == "cmip6":
+            print("Using CMIP6 sterodynamic patterns...")
             coeffs = load_CMIP6_slopes('ssp585')
             coeffs = np.roll(coeffs, 180, axis=2)
         else:
+            print("Using CMIP5 sterodynamic patterns...")
             coeffs = load_CMIP5_slope_coeffs('rcp85')
     else:
         coeffs = load_CMIP5_slope_coeffs(scenario)
