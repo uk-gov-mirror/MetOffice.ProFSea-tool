@@ -27,8 +27,6 @@ class GMSLREmulator:
         Array of ocean heat content change values.
     scenario: str
         Name of the scenario.
-    output_dir: str
-        Directory to save the components to.
     end_yr: int
         End year of the projections.
     seed: int
@@ -87,7 +85,6 @@ class GMSLREmulator:
             T_change: np.ndarray,
             OHC_change: np.ndarray,
             scenario: str,
-            output_dir: str,
             end_yr: int,
             seed: int=1234,
             nt: int=450,
@@ -105,7 +102,6 @@ class GMSLREmulator:
         self.T_change = T_change
         self.OHC_change = OHC_change
         self.scenario = scenario
-        self.output_dir = output_dir
         self.end_yr = end_yr
         self.seed = seed
         self.nt = nt
@@ -160,7 +156,7 @@ class GMSLREmulator:
     def get_components(self) -> dict:
         """Get all GMSLR components as a dictionary."""
         components_dict = {
-            'exp': self.expansion,
+            'expansion': self.expansion,
             'glacier': self.glacier,
             'greenland': self.greenland,
             'antsmb': self.antsmb,
@@ -170,6 +166,11 @@ class GMSLREmulator:
             'gmslr': self.gmslr
         }
         return components_dict
+
+    def list_components(self) -> list:
+        """List the available SLR components."""
+        component_dict = self.get_components()
+        print(list(component_dict.keys()))
     
     def save_components(self, output_dir: str, scenario_name: str) -> None:
         """Save all SLR components as .npy files to a directory.

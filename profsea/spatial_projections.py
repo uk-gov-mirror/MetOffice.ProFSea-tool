@@ -2,14 +2,15 @@
 Copyright (c) 2023, Met Office
 All rights reserved.
 """
-import dask.array as da
 import glob
-import iris
+import pickle
 import json
+import os
+
+import dask.array as da
+import iris
 from netCDF4 import Dataset
 import numpy as np
-import os
-import pickle
 from scipy.interpolate import RegularGridInterpolator
 import xarray as xr
 
@@ -52,7 +53,7 @@ def calc_future_sea_level(scenario: str) -> None:
 
     # Specify the sea level components to include. The GIA contribution is
     # calculated separately.
-    components = ['exp', 'antdyn', 'antsmb', 'greendyn', 'greensmb',
+    components = ['expansion', 'antdyn', 'antsmb', 'greendyn', 'greensmb',
                   'glacier', 'landwater']
 
     # Select dimensions from sample file, [time, realisation]
@@ -233,7 +234,7 @@ def calculate_sl_components(
         sampled_mc = mc_timeseries[resamples, :nyrs]
         montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None])
 
-        if comp == 'exp':
+        if comp == 'expansion':
             sampled_coeffs = calc_expansion_contribution(scenario, nsmps)
             montecarlo_R = montecarlo_G * sampled_coeffs[:, None, :, :]
             del sampled_coeffs
@@ -376,7 +377,7 @@ def setup_FP_interpolators(components: list) -> tuple:
     :return nFPs: length of FPlist and interpolator objects of all sea level
     components
     """
-    print('running function setup_FP_interpolators')
+    print("running function setup_FP_interpolators")
 
     # Directories for the Slangen, Spada and Klemann fingerprints
     slangendir = settings["fingerprints"]["slangendir"]
@@ -390,20 +391,20 @@ def setup_FP_interpolators(components: list) -> tuple:
     klemann_FPs = {}
 
     # Only 1 fingerprint for Landwater
-    comp = 'landwater'
+    comp = "landwater"
     slangen_FPs[comp] = create_FP_interpolator(slangendir,
-                                               comp + '_slangen_nomask.nc')
+                                               comp + "_slangen_nomask.nc")
 
-    # Create interpolators for the remaining components. Expansion ('exp')
+    # Create interpolators for the remaining components. Expansion ('expansion')
     # is global so no interpolation is needed.
-    components_todo = [c for c in components if c not in ['exp', 'landwater']]
+    components_todo = [c for c in components if c not in ["expansion", "landwater"]]
     for comp in components_todo:
         slangen_FPs[comp] = create_FP_interpolator(slangendir,
-                                                   comp + '_slangen_nomask.nc')
+                                                   comp + "_slangen_nomask.nc")
         spada_FPs[comp] = create_FP_interpolator(spadadir,
-                                                 comp + '_spada_nomask.nc')
+                                                 comp + "_spada_nomask.nc")
         klemann_FPs[comp] = create_FP_interpolator(klemanndir,
-                                                   comp + '_klemann_nomask.nc')
+                                                   comp + "_klemann_nomask.nc")
 
     FPlist = [slangen_FPs, spada_FPs, klemann_FPs]
     nFPs = len(FPlist)
@@ -460,7 +461,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
 
     print('Saving components...')
     gmslr.save_components(
-        os.path.join(settings["baseoutdir"], 'emulator_output'),
+        os.path.join(settings["baseoutdir"], 'gmslr_output'),
         scenario)
     print('Saved!\n')
 
