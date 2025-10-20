@@ -451,7 +451,6 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
         T_change,
         OHC_change,
         scenario,
-        os.path.join(settings["baseoutdir"], 'emulator_output'),
         settings["projection_end_year"],
         palmer_method=palmer_method,
         input_ensemble=settings["emulator_settings"]["use_input_ensemble"],
