@@ -1,0 +1,15 @@
+name: profsea-emu
+channels:
+  - conda-forge
+dependencies:
+  - cartopy
+  - dask
+  - iris
+  - matplotlib
+  - netcdf4
+  - numpy
+  - pandas
+  - python
+  - pyyaml
+  - scipy
+  - xarray
