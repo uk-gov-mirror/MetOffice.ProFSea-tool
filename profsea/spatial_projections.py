@@ -6,6 +6,7 @@ import glob
 import pickle
 import json
 import os
+from pathlib import Path
 
 import dask.array as da
 import iris
@@ -57,7 +58,7 @@ def calc_future_sea_level(scenario: str) -> None:
                   'glacier', 'landwater']
 
     # Select dimensions from sample file, [time, realisation]
-    sample = np.load(os.path.join(mcdir, f'{scenario}_exp.npy'))
+    sample = np.load(os.path.join(mcdir, f'{scenario}_expansion.npy'))
     nesm = sample.shape[0] # also number of samples to make
     nyrs = sample.shape[1]
     yrs = np.arange(2007, 2007 + nyrs)
@@ -194,7 +195,6 @@ def save_projections(
     R_file = '_'.join([file_header, 'regional']) + '.npy'
 
     # Save the global and local projections
-    makefolder(sealev_ddir)
     np.save(os.path.join(sealev_ddir, R_file), montecarlo_R)
 
 
@@ -460,7 +460,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
 
     print('Saving components...')
     gmslr.save_components(
-        os.path.join(settings["baseoutdir"], 'gmslr_output'),
+        os.path.join(settings["emulator_settings"]["gmslr_output_dir"]),
         scenario)
     print('Saved!\n')
 
@@ -474,6 +474,16 @@ def main():
     """
     print(f'\nProjecting out to: {settings["projection_end_year"]}\n')
 
+    # Sort out paths
+    Path(
+        os.path.join(
+            settings["baseoutdir"], 
+            settings["experiment_name"])
+    ).mkdir(parents=True, exist_ok=True)
+    Path(
+        read_dir()[4]
+    ).mkdir(parents=True, exist_ok=True)
+
     # Extract site data from station list (e.g. tide gauge location) or
     # construct based on user input
     if settings["emulator_settings"]["emulator_mode"]:
@@ -482,9 +492,7 @@ def main():
             palmer_method = True
         else:
             palmer_method = False
-            
-        makefolder(os.path.join(settings["baseoutdir"], 'emulator_output'))
-        
+
         # Get the metadata of either the site location or tide gauge location
         for scenario in settings["emulator_settings"]["emulator_scenario"]:
             calculate_global_components(scenario, palmer_method)

@@ -10,12 +10,13 @@
 #   N.B. if other site name: latlon needs to be specified
         # sitelatlon: [[-51.69, -57.82]])
 siteinfo:
-    region: 'cmip6_patterns'   # str
+    region: 'cmip7_example'   # str
     sitename: ['Stanley II']     # list
     sitelatlon: [[]]             # list
 
 # Base output directory
 #   N.B. the code will add region to the output directory
+experiment_name: 'cmip7_example'
 baseoutdir: '/add/your/directory/'
 
 # Set the end year of the projection(s)
@@ -25,6 +26,7 @@ projection_end_year: 2300 # int between 2050 and 2300
 emulator_settings:
     emulator_mode: true # bool
     use_input_ensemble: true # bool
+    gmslr_output_dir: '/ProFSea/ProFSea-tool/data/runs/gmslr'
     emulator_scenario: ['high-extension', 'high-overshoot', 'medium-extension', 'medium-overshoot', 'low', 'verylow', 'verylow-overshoot'] # str
     
 scm_data:

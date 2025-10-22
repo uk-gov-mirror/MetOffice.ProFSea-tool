@@ -39,7 +39,7 @@ def read_dir():
                            'zos_regression', '')
 
     # output sea level projections data directory
-    sealev_ddir = os.path.join(root_dir, data_region, 'data',
+    sealev_ddir = os.path.join(root_dir, settings['experiment_name'], 'data',
                                'sea_level_projections', '')
 
     # output sea level projections figure directory
