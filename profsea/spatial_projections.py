@@ -16,7 +16,7 @@ from scipy.interpolate import RegularGridInterpolator
 import xarray as xr
 
 from profsea.config import settings
-from profsea.directories import read_dir, makefolder
+from profsea.directories import read_dir
 from profsea.emulator import GMSLREmulator
 from profsea.slr_pkg import choose_montecarlo_dir  # found in __init.py__
 
