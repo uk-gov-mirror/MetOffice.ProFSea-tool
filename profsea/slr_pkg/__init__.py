@@ -325,7 +325,7 @@ def choose_montecarlo_dir():
     Choose the Monte Carlo directory based on the projection end year.
     """
     if settings["emulator_settings"]["emulator_mode"]:
-        return os.path.join(settings["baseoutdir"], 'emulator_output')
+        return os.path.join(settings["emulator_settings"]["gmslr_output_dir"])
     
     end_yr = settings["projection_end_year"]
     if (end_yr >= 2050) & (end_yr <= 2100):

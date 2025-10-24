@@ -159,6 +159,8 @@ class GMSLREmulator:
             'expansion': self.expansion,
             'glacier': self.glacier,
             'greenland': self.greenland,
+            'greendyn': self.greendyn,
+            'greensmb': self.greensmb,
             'antsmb': self.antsmb,
             'antdyn': self.antdyn,
             'antnet': self.antnet,
@@ -186,6 +188,8 @@ class GMSLREmulator:
         -------
         None
         """
+        # Create directory if it doesn't exist
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
         for name, component in self.get_components().items():
             np.save(
                 os.path.join(
@@ -206,12 +210,21 @@ class GMSLREmulator:
         fraction = np.random.rand(self.nm * self.nt) # correlation between antsmb and antdyn
         
         self.run_parallel_projections(T_int_med, T_int_ens, T_ens, fraction)
-
-        if self.output_percentiles is not None:
-            self.expansion = np.percentile(self.expansion, self.output_percentiles, axis=0)
         
         self.antnet = self.antsmb + self.antdyn
         self.gmslr = self.glacier + self.greenland + self.antnet + self.landwater + self.expansion
+
+        if self.output_percentiles is not None:
+            self.gmslr = np.percentile(self.gmslr, self.output_percentiles, axis=0)
+            self.expansion = np.percentile(self.expansion, self.output_percentiles, axis=0)
+            self.antnet = np.percentile(self.antnet, self.output_percentiles, axis=0)
+            self.antdyn = np.percentile(self.antdyn, self.output_percentiles, axis=0)
+            self.antsmb = np.percentile(self.antsmb, self.output_percentiles, axis=0)
+            self.glacier = np.percentile(self.glacier, self.output_percentiles, axis=0)
+            self.greenland = np.percentile(self.greenland, self.output_percentiles, axis=0)
+            self.greenland_ar6 = np.percentile(self.greenland_ar6, self.output_percentiles, axis=0)
+            self.landwater = np.percentile(self.landwater, self.output_percentiles, axis=0)
+            self.landwater_ar6 = np.percentile(self.landwater_ar6, self.output_percentiles, axis=0)
             
     def run_parallel_projections(
             self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
@@ -227,8 +240,11 @@ class GMSLREmulator:
                 executor.submit(self.project_glacier, T_int_med, T_int_ens): 'glacier',
                 executor.submit(self.project_antsmb, T_int_ens, fraction): 'antsmb',
                 executor.submit(self.project_greenland_AR6, T_ens): 'greenland',
+                executor.submit(self.project_greendyn_AR5): 'greendyn',
+                executor.submit(self.project_greensmb_AR5, T_ens): 'greensmb',
                 executor.submit(self.project_antdyn, fraction): 'antdyn',
-                executor.submit(self.project_landwater): 'landwater'
+                executor.submit(self._project_landwater_ar5): 'landwater',
+                executor.submit(self.project_landwater): 'landwater_ar6'
             }
             results = {}
             for future in concurrent.futures.as_completed(futures):
@@ -240,16 +256,13 @@ class GMSLREmulator:
 
         self.glacier = results['glacier']
         self.antsmb = results['antsmb']
-        self.greenland = results['greenland']
+        self.greenland_ar6 = results['greenland']
+        self.greenland = results['greendyn'] + results['greensmb']
+        self.greendyn = results['greendyn']
+        self.greensmb = results['greensmb']
         self.antdyn = results['antdyn']
         self.landwater = results['landwater']
-
-        if self.output_percentiles is not None:
-            self.glacier = np.percentile(self.glacier, self.output_percentiles, axis=0)
-            self.antsmb = np.percentile(self.antsmb, self.output_percentiles, axis=0)
-            self.greenland = np.percentile(self.greenland, self.output_percentiles, axis=0)
-            self.antdyn = np.percentile(self.antdyn, self.output_percentiles, axis=0)
-            self.landwater = np.percentile(self.landwater, self.output_percentiles, axis=0)
+        self.landwater_ar6 = results['landwater_ar6']
 
   
     def calculate_drivers(self) -> tuple:
@@ -366,7 +379,6 @@ class GMSLREmulator:
                     dict(name='GloGEMflow',factor=5.50,exponent=0.564,cvgl=0.188),
                     dict(name='OGGMv1.6',factor=2.66,exponent=0.730,cvgl=0.206),
                     dict(name='PyGEM-OGGMv1.3', factor=2.66, exponent=0.730, cvgl=0.206)]
-
             else: 
                 raise KeyError('glaciermip must be 1 or 2')
         else:
