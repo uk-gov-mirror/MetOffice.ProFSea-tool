@@ -59,8 +59,8 @@ def calc_future_sea_level(scenario: str) -> None:
 
     # Select dimensions from sample file, [time, realisation]
     sample = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                                  'data', 'gmslr', 
-                                  f'{scenario}_expansion.npy'))
+                                  'data', 'gmslr', f'{scenario}_expansion.npy'))
+    
     nesm = sample.shape[0] # also number of samples to make
     nyrs = sample.shape[1]
     yrs = np.arange(2006, 2006 + nyrs)
@@ -234,7 +234,8 @@ def calculate_sl_components(
         # Load global projections in for the component
         #mc_timeseries = np.load(os.path.join(mcdir, f'{scenario}_{comp}.npy'))
         mc_timeseries = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                                  'data', 'gmslr', f'{scenario}_{comp}.npy'))
+                                             'data','gmslr',f'{scenario}_{comp}.npy'))
+        print("data read: ", mc_timeseries)
         sampled_mc = mc_timeseries[resamples, :nyrs]
         montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None])
 
@@ -465,9 +466,11 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
     print('Saving components...')
     gmslr.save_components(
         os.path.join(settings["baseoutdir"],settings["experiment_name"],
-            'data', 'gmslr'),
+                     'data', 'gmslr'),
         scenario)
-    print('Saved!\n')
+    print('Saved at: ',
+          os.path.join(settings["baseoutdir"],settings["experiment_name"],
+                       'data', 'gmslr'),'\n')
 
 
 def main():
