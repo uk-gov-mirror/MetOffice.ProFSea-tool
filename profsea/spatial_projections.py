@@ -17,12 +17,13 @@ from rich.console import Console
 from rich.progress import track
 import scipy
 from scipy.interpolate import RegularGridInterpolator
+from scipy.spatial.distance import cdist
 import xarray as xr
 
 from profsea.config import settings
 from profsea.directories import read_dir
 from profsea.emulator import GMSLREmulator
-from profsea.slr_pkg import choose_montecarlo_dir  # found in __init.py__
+from profsea.slr_pkg import choose_montecarlo_dir
 
 console = Console()
 warnings.filterwarnings("ignore")
@@ -436,7 +437,6 @@ def setup_FP_interpolators(components: list) -> tuple:
 def sample_members_2D(array: np.ndarray, percentile_seq: list|np.ndarray) -> np.ndarray:
         """Sample real ensemble members from a 2D numpy array."""
         # Caculate statistical timeseries, then match with closest real timeseries 
-        from scipy.spatial.distance import cdist
         array_percentiles = np.percentile(array, percentile_seq, axis=0)
         array_perc_diffs = array[None, :, :] - array_percentiles[:, None, :]
 
