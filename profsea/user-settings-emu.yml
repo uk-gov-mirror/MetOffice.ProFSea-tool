@@ -71,11 +71,8 @@ giaestimates:
     global: '/data/gia_estimates/global_GIA_interpolators.pickle'
     uk: '‘/data/gia_estimates/Bradley_GIA_interpolator.pickle'
 
-# Directories for the Slangen, Spada and Klemann fingerprints
-fingerprints:
-    slangendir: '/data/grd_fingerprints/'
-    spadadir: '/data/grd_fingerprints/'
-    klemanndir: '/data/grd_fingerprints/'
+# Directories for all the fingerprints
+fingerprints: '/data/grd_fingerprints/'
 
 # Directory of Monte Carlo time series for new projections
 #   N.B. Originally developed by Jonathan Gregory
