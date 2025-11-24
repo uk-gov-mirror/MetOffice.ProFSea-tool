@@ -62,17 +62,11 @@ def calc_future_sea_level(scenario: str) -> None:
                   'glacier', 'landwater']
 
     # Select dimensions from sample file, [time, realisation]
-    sample = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                                  'data', 'gmslr', f'{scenario}_expansion.npy'))
-    
+    sample = np.load(os.path.join(mcdir, f'{scenario}_expansion.npy'))
     nesm = sample.shape[0] # also number of samples to make
     nyrs = sample.shape[1]
-<<<<<<< HEAD
-    yrs = np.arange(2006, 2006 + nyrs)
-=======
     yrs = np.arange(2007, 2007 + nyrs)
     console.log(f"Running with {nesm} ensemble members")
->>>>>>> emu-update-greg
 
     grid_path = os.path.join(
         settings["cmipinfo"]["sealevelbasedir"], 
@@ -263,10 +257,7 @@ def calculate_sl_components(
         montecarlo_G = da.zeros((nsmps, nyrs, lats, lons), dtype=np.float32) # (no FPs applied)
 
         # Load global projections in for the component
-        #mc_timeseries = np.load(os.path.join(mcdir, f'{scenario}_{comp}.npy'))
-        mc_timeseries = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                                             'data','gmslr',f'{scenario}_{comp}.npy'))
-        print("data read: ", mc_timeseries)
+        mc_timeseries = np.load(os.path.join(mcdir, f'{scenario}_{comp}.npy'))
         sampled_mc = mc_timeseries[resamples, :nyrs]
         montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None])
 
@@ -441,126 +432,3 @@ def setup_FP_interpolators(components: list) -> tuple:
     FPlist = [slangen_FPs, spada_FPs, klemann_FPs]
     nFPs = len(FPlist)
     return nFPs, FPlist
-
-
-def sample_members_2D(array: np.ndarray, percentile_seq: list|np.ndarray) -> np.ndarray:
-        """Sample real ensemble members from a 2D numpy array."""
-        # Caculate statistical timeseries, then match with closest real timeseries 
-        array_percentiles = np.percentile(array, percentile_seq, axis=0)
-        array_perc_diffs = array[None, :, :] - array_percentiles[:, None, :]
-
-        # Calculate distances between statistical percentiles and real members
-        distances = scipy.linalg.norm(array_perc_diffs, axis=2)
-        mem_indices = np.argmin(distances, axis=1)
-        distances = cdist(array_percentiles, array)
-        mem_indices = np.argmin(distances, axis=1)
-        return array[mem_indices]
-
-
-def calculate_global_components(scenario: str, palmer_method: bool) -> None:
-    """
-    Calculate the global contributions for each of the sea-level components
-    using the GMSLR module.
-    :param scenario: string representing the scenario being simulated
-    :param palmer_method: boolean to determine whether to use the palmer_method
-    """
-    # Check inputs are correctly set up
-    if not (os.path.exists(settings["scm_data"]["temperature"]) and 
-            os.path.exists(settings["scm_data"]["ocean_heat_content"])):
-        raise Exception(
-            'SCM data paths (temperature and ocean heat content) must be '
-            'correctly configured in user-settings.yml')
-
-    if not os.path.exists(settings["scm_data"]["cumulative_emissions"]):
-        raise Exception('Cumulative emissions path must be correctly configured '
-                        'in user-settings.yml')
-
-    if (settings["scm_data"]["temperature"].split(".")[-1] != 'nc' or
-        settings["scm_data"]["ocean_heat_content"].split(".")[-1] != 'nc'):
-        raise Exception('SCM data must be saved in NetCDF format.')
-
-    percentiles = np.arange(101)
-
-    # Now run the simulations
-    console.log(f'Projecting global components for {scenario} scenario...')
-    T_change = xr.load_dataarray(settings["scm_data"]["temperature"])
-    OHC_change = xr.load_dataarray(settings["scm_data"]["ocean_heat_content"])
-    with open(settings["scm_data"]["cumulative_emissions"]) as f:
-        cumulative_emissions = json.load(f)
-
-    T_change = T_change.sel(scenario=scenario).data.T # (member, time)
-    OHC_change = OHC_change.sel(scenario=scenario).data.T
-
-    T_change = sample_members_2D(T_change, percentiles)
-    OHC_change = sample_members_2D(OHC_change, percentiles)
-
-    gmslr = GMSLREmulator(
-        T_change,
-        OHC_change,
-        scenario,
-        settings["projection_end_year"],
-        palmer_method=palmer_method,
-        input_ensemble=settings["emulator_settings"]["use_input_ensemble"],
-        output_percentiles=np.arange(101),
-        cum_emissions_total=cumulative_emissions[scenario])
-    gmslr.project()
-
-    console.log('Saving components...')
-    gmslr.save_components(
-        os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                     'data', 'gmslr'),
-        scenario)
-
-
-    console.log('Saved!\n')
-
-
-
-def main():
-    """
-    Reads in and calculates global and local (regional) sea level change
-    (sum total), based on the different contributing factors e.g. thermal
-    expansion, GIA and mass balance. Writes out the selected emissions scenario
-    estimates of the various components and their sums.
-    """
-    console.log(f'\nProjecting out to: {settings["projection_end_year"]}\n')
-
-    # Sort out paths
-    Path(
-        os.path.join(
-            settings["baseoutdir"], 
-            settings["experiment_name"])
-    ).mkdir(parents=True, exist_ok=True)
-
-    Path(
-        os.path.join(
-            settings["baseoutdir"],
-            settings["experiment_name"],
-            'data', 'gmslr')
-    ).mkdir(parents=True, exist_ok=True)
-
-    Path(
-        read_dir()[4]
-    ).mkdir(parents=True, exist_ok=True)
-
-    # Extract site data from station list (e.g. tide gauge location) or
-    # construct based on user input
-    if settings["emulator_settings"]["emulator_mode"]:
-        console.log('\nInitiating ProFSea emulator')
-        if settings["projection_end_year"] > 2100:
-            palmer_method = True
-        else:
-            palmer_method = False
-
-        # Get the metadata of either the site location or tide gauge location
-        for scenario in settings["emulator_settings"]["emulator_scenario"]:
-            calculate_global_components(scenario, palmer_method)
-            calc_future_sea_level(scenario)
-    else:
-        scenarios = ['rcp26', 'rcp45', 'rcp85']
-        for scenario in scenarios:
-            calc_future_sea_level(scenario)
-
-
-if __name__ == '__main__':
-    main()
