@@ -67,12 +67,9 @@ def calc_future_sea_level(scenario: str) -> None:
     
     nesm = sample.shape[0] # also number of samples to make
     nyrs = sample.shape[1]
-<<<<<<< HEAD
+    
     yrs = np.arange(2006, 2006 + nyrs)
-=======
-    yrs = np.arange(2007, 2007 + nyrs)
     console.log(f"Running with {nesm} ensemble members")
->>>>>>> emu-update-greg
 
     grid_path = os.path.join(
         settings["cmipinfo"]["sealevelbasedir"], 
