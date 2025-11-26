@@ -254,6 +254,17 @@ class GMSLREmulator:
                 component
             )
 
+        # Save data in netcdf format (store all components in an xarray dataset)
+        # Assumes first dimension is percentile, but can be more general (percentile/ensemble)
+        ds = xr.Dataset()
+        for name, component in self.get_components().items():
+            xr_dataArray = xr.DataArray(component, dims=["percentile", "time"], 
+                                        coords={"percentile": np.arange(0,101), 
+                                                "time": np.arange(2006, component.shape[1] + 2006)})
+            xr_dataArray.attrs["units"] = "meter"
+            ds[name] = xr_dataArray
+        ds.to_netcdf(os.path.join(output_dir,f'{scenario_name}.nc'))
+
     def project(self) -> None:
         """Run the emulator to project GMSLR components.
 
@@ -296,6 +307,8 @@ class GMSLREmulator:
             self.glacier = self.sample_members_2D(self.glacier)
             self.greenland_ar6 = self.sample_members_2D(self.greenland_ar6)
             self.landwater = self.sample_members_2D(self.landwater)
+            self.greensmb = self.sample_members_2D(self.greensmb)
+            self.greendyn = self.sample_members_2D(self.greendyn)
             # self.greenland_ar5 = self.sample_members_2D(self.greenland_ar5)
             # self.landwater_ar6 = self.sample_members_2D(self.landwater_ar6)
 
