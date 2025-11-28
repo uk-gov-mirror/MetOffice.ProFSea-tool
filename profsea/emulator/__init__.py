@@ -9,12 +9,50 @@ All rights reserved.
 import os
 import concurrent
 from collections.abc import Sequence
+import functools
+import atexit
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+from rich.console import Console
+from scipy.spatial.distance import cdist
 from scipy.stats import norm, truncnorm
 import xarray as xr
-import pandas as pd
+
+console = Console()
+
+@functools.lru_cache(maxsize=1)
+def load_greenland_calibration():
+    """Loads the CSV once and keeps it in memory."""
+    path = Path(__file__).parent / "aux_data" / "ISMIP_GIS_calibration.csv"
+    return pd.read_csv(path)
+
+@functools.lru_cache(maxsize=1)
+def load_landwater_projection():
+    """Loads the NetCDF once and keeps the VALUES in memory."""
+    path = Path(__file__).parent / 'aux_data' / 'ssp_global_landwater_projections.nc'
+    with xr.open_dataset(path) as ds:
+        ds.load() 
+    return ds
+
+_SHARED_EXECUTOR = None
+
+def get_shared_executor():
+    """Returns a singleton ThreadPoolExecutor."""
+    global _SHARED_EXECUTOR
+    if _SHARED_EXECUTOR is None:
+        max_workers = min(8, os.cpu_count() or 1)
+        _SHARED_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    return _SHARED_EXECUTOR
+
+@atexit.register
+def shutdown_executor():
+    """Ensures the executor is cleaned up when the script exits."""
+    global _SHARED_EXECUTOR
+    if _SHARED_EXECUTOR:
+        _SHARED_EXECUTOR.shutdown(wait=True)
+
 
 class GMSLREmulator:
     """Emulator for global mean sea level rise components.
@@ -41,12 +79,17 @@ class GMSLREmulator:
     glaciermip: bool | int
         If False, use AR5 parameters. If 1, use GlacierMIP 
         (Hock et al., 2019). If 2, use GlacierMIP2 (Marzeion et al., 2020).
+    parallel: bool
+        If True, project SLR components in parallel.
     input_ensemble: bool
         If True, use an input ensemble of temperature and 
         ocean heat content change.
     output_percentiles: list|np.ndarray
         If not None, calculate percentiles from a 1D list/array for each 
         component
+    random_sample: bool
+        If True, randomly sample a single ensemble member across all 
+        components
     T_percentile_95: np.ndarray
         95th percentile of temperature change timeseries.
     OHC_percentile_95: np.ndarray   
@@ -91,16 +134,18 @@ class GMSLREmulator:
             nm: int=1000,
             tcv: float=1.0,
             glaciermip: bool|int=2,
+            parallel: bool=True,
             input_ensemble: bool=True,
             output_percentiles: list|np.ndarray=None,
+            random_sample: bool=False,
             T_percentile_95: np.ndarray=None,
             OHC_percentile_95: np.ndarray=None,
             cum_emissions_total: np.ndarray=None,
             palmer_method: bool=True) -> None:
         
         np.random.seed(None if seed is None else seed)
-        self.T_change = T_change
-        self.OHC_change = OHC_change
+        self.T_change = np.asarray(T_change)
+        self.OHC_change = np.asarray(OHC_change)
         self.scenario = scenario
         self.end_yr = end_yr
         self.seed = seed
@@ -108,13 +153,15 @@ class GMSLREmulator:
         self.nm = nm
         self.tcv = tcv
         self.glaciermip = glaciermip
+        self.parallel = parallel
         self.input_ensemble = input_ensemble
         self.output_percentiles = output_percentiles
+        self.random_sample = random_sample
         self.T_percentile_95 = T_percentile_95
         self.OHC_percentile_95 = OHC_percentile_95
         self.cum_emissions_total = cum_emissions_total
         self.palmer_method = palmer_method
-        
+
         # First year of AR5 projections
         self.endofhistory = 2006
 
@@ -158,7 +205,7 @@ class GMSLREmulator:
         components_dict = {
             'expansion': self.expansion,
             'glacier': self.glacier,
-            'greenland': self.greenland,
+            'greenland': self.greenland_ar6,
             'greendyn': self.greendyn,
             'greensmb': self.greensmb,
             'antsmb': self.antsmb,
@@ -173,6 +220,15 @@ class GMSLREmulator:
         """List the available SLR components."""
         component_dict = self.get_components()
         print(list(component_dict.keys()))
+
+    def sample_members_2D(
+            self, array: np.ndarray) -> np.ndarray:
+        """Sample real ensemble members from a 2D numpy array."""
+        # Caculate statistical timeseries, then match with closest real timeseries 
+        array_percentiles = np.percentile(array, self.output_percentiles, axis=0)
+        distances = cdist(array_percentiles, array)
+        mem_indices = np.argmin(distances, axis=1)
+        return array[mem_indices]
     
     def save_components(self, output_dir: str, scenario_name: str) -> None:
         """Save all SLR components as .npy files to a directory.
@@ -198,6 +254,17 @@ class GMSLREmulator:
                 component
             )
 
+        # Save data in netcdf format (store all components in an xarray dataset)
+        # Assumes first dimension is percentile, but can be more general (percentile/ensemble)
+        ds = xr.Dataset()
+        for name, component in self.get_components().items():
+            xr_dataArray = xr.DataArray(component, dims=["percentile", "time"], 
+                                        coords={"percentile": self.output_percentiles, 
+                                                "time": np.arange(2006, component.shape[1] + 2006)})
+            xr_dataArray.attrs["units"] = "m"
+            ds[name] = xr_dataArray
+        ds.to_netcdf(os.path.join(output_dir,f'{scenario_name}_global.nc'))
+
     def project(self) -> None:
         """Run the emulator to project GMSLR components.
 
@@ -209,22 +276,64 @@ class GMSLREmulator:
         self.expansion = np.tile(Exp_ens, (self.nm, 1))
         fraction = np.random.rand(self.nm * self.nt) # correlation between antsmb and antdyn
         
-        self.run_parallel_projections(T_int_med, T_int_ens, T_ens, fraction)
+        if self.parallel:
+            self.run_parallel_projections(T_int_med, T_int_ens, T_ens, fraction)
+        else:
+            self.run_serial_projections(T_int_med, T_int_ens, T_ens, fraction)
         
         self.antnet = self.antsmb + self.antdyn
-        self.gmslr = self.glacier + self.greenland + self.antnet + self.landwater + self.expansion
+        self.gmslr = self.glacier + self.greenland_ar6 + self.antnet + self.landwater + self.expansion
 
+        rng = np.random.default_rng()
+        if self.random_sample:
+            random_idx = rng.integers(low=0, high=self.nm)
+            self.gmslr = self.gmslr[random_idx][None, :]
+            self.expansion = self.expansion[random_idx][None, :]
+            self.antnet = self.antnet[random_idx][None, :]
+            self.antdyn = self.antdyn[random_idx][None, :]
+            self.antsmb = self.antsmb[random_idx][None, :]
+            self.glacier = self.glacier[random_idx][None, :]
+            self.greenland_ar6 = self.greenland_ar6[random_idx][None, :]
+            self.landwater = self.landwater[random_idx][None, :]
+
+        # TODO Parallelise this section as it's a bit slow
         if self.output_percentiles is not None:
-            self.gmslr = np.percentile(self.gmslr, self.output_percentiles, axis=0)
-            self.expansion = np.percentile(self.expansion, self.output_percentiles, axis=0)
-            self.antnet = np.percentile(self.antnet, self.output_percentiles, axis=0)
-            self.antdyn = np.percentile(self.antdyn, self.output_percentiles, axis=0)
-            self.antsmb = np.percentile(self.antsmb, self.output_percentiles, axis=0)
-            self.glacier = np.percentile(self.glacier, self.output_percentiles, axis=0)
-            self.greenland = np.percentile(self.greenland, self.output_percentiles, axis=0)
-            self.greenland_ar6 = np.percentile(self.greenland_ar6, self.output_percentiles, axis=0)
-            self.landwater = np.percentile(self.landwater, self.output_percentiles, axis=0)
-            self.landwater_ar6 = np.percentile(self.landwater_ar6, self.output_percentiles, axis=0)
+            console.log(f"Sampling {len(self.output_percentiles)} members per component...")
+            self.gmslr = self.sample_members_2D(self.gmslr)
+            self.expansion = self.sample_members_2D(self.expansion)
+            self.antnet = self.sample_members_2D(self.antnet)
+            self.antdyn = self.sample_members_2D(self.antdyn)
+            self.antsmb = self.sample_members_2D(self.antsmb)
+            self.glacier = self.sample_members_2D(self.glacier)
+            self.greenland_ar6 = self.sample_members_2D(self.greenland_ar6)
+            self.landwater = self.sample_members_2D(self.landwater)
+            self.greensmb = self.sample_members_2D(self.greensmb)
+            self.greendyn = self.sample_members_2D(self.greendyn)
+            # self.greenland_ar5 = self.sample_members_2D(self.greenland_ar5)
+            # self.landwater_ar6 = self.sample_members_2D(self.landwater_ar6)
+
+    def run_serial_projections(
+            self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
+            T_ens: np.ndarray, fraction: np.ndarray) -> None:
+        """Run components of the emulator sequentially.
+        
+        Returns
+        -------
+        None
+        """
+        self.glacier = self.project_glacier(T_int_med, T_int_ens)
+        self.antsmb = self.project_antsmb(T_int_ens, fraction)
+        self.greenland_ar6 = self.project_greenland_AR6(T_ens)
+        self.greendyn = self.project_greendyn_AR5()
+        self.greensmb = self.project_greensmb_AR5(T_ens)
+        self.antdyn = self.project_antdyn(fraction)
+        
+        # _project_landwater_ar5 corresponds to 'landwater' key in the parallel map
+        self.landwater = self._project_landwater_ar5()
+        # project_landwater corresponds to 'landwater_ar6' key in the parallel map
+        self.landwater_ar6 = self.project_landwater()
+
+        self.greenland_ar5 = self.greendyn + self.greensmb
             
     def run_parallel_projections(
             self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
@@ -235,29 +344,29 @@ class GMSLREmulator:
         -------
         None
         """
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = {
-                executor.submit(self.project_glacier, T_int_med, T_int_ens): 'glacier',
-                executor.submit(self.project_antsmb, T_int_ens, fraction): 'antsmb',
-                executor.submit(self.project_greenland_AR6, T_ens): 'greenland',
-                executor.submit(self.project_greendyn_AR5): 'greendyn',
-                executor.submit(self.project_greensmb_AR5, T_ens): 'greensmb',
-                executor.submit(self.project_antdyn, fraction): 'antdyn',
-                executor.submit(self._project_landwater_ar5): 'landwater',
-                executor.submit(self.project_landwater): 'landwater_ar6'
-            }
-            results = {}
-            for future in concurrent.futures.as_completed(futures):
-                key = futures[future]
-                try:
-                    results[key] = future.result()
-                except Exception as e:
-                    print(f"{key} generated an exception: {e}")
+        executor = get_shared_executor()
+        futures = {
+            executor.submit(self.project_glacier, T_int_med, T_int_ens): 'glacier',
+            executor.submit(self.project_antsmb, T_int_ens, fraction): 'antsmb',
+            executor.submit(self.project_greenland_AR6, T_ens): 'greenland',
+            executor.submit(self.project_greendyn_AR5): 'greendyn',
+            executor.submit(self.project_greensmb_AR5, T_ens): 'greensmb',
+            executor.submit(self.project_antdyn, fraction): 'antdyn',
+            executor.submit(self._project_landwater_ar5): 'landwater',
+            executor.submit(self.project_landwater): 'landwater_ar6'
+        }
+        results = {}
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as e:
+                print(f"{key} generated an exception: {e}")
 
         self.glacier = results['glacier']
         self.antsmb = results['antsmb']
         self.greenland_ar6 = results['greenland']
-        self.greenland = results['greendyn'] + results['greensmb']
+        self.greenland_ar5 = results['greendyn'] + results['greensmb']
         self.greendyn = results['greendyn']
         self.greensmb = results['greensmb']
         self.antdyn = results['antdyn']
@@ -549,8 +658,7 @@ class GMSLREmulator:
         np.ndarray
             Total GIS contribution to GMSLR.
         """
-        df = pd.read_csv(
-            Path(__file__).parent / "aux_data" / "ISMIP_GIS_calibration.csv")
+        df = load_greenland_calibration()
         b0 = df['b0'].values[None, :, None]
         b1 = df['b1'].values[None, :, None]
         b2 = df['b2'].values[None, :, None]
@@ -680,13 +788,13 @@ class GMSLREmulator:
             Land water storage contribution to GMSLR.
         """
         # Read in AR6 landwater contributions
-        lw_ds = xr.open_dataset(
-            Path(__file__).parent / 'aux_data'
-            / 'ssp_global_landwater_projections.nc')
+        lw_ds = load_landwater_projection()
 
         # Interpolate to annual projections
-        lw_ds = lw_ds.interp(years=np.arange(2005, 2301, 1), method='linear').squeeze()
-        lw = lw_ds['sea_level_change'].values * 1e-3  # mm to m
+        interp_ds = lw_ds.interp(years=np.arange(2005, 2301, 1), method='linear').squeeze()
+        lw = interp_ds['sea_level_change'].values * 1e-3  # mm to m
+
+        del interp_ds
         
         # Go from shape (20000, 294) to (101000, 294)
         full_repeats = (self.nt * self.nm) // lw.shape[0]
@@ -711,7 +819,7 @@ class GMSLREmulator:
         final = [-0.01,0.09] # AR5
         # final = [0.01, 0.04] # AR6
         return self.time_projection(0.38, 0.49-0.38, final, nfinal=nyr)
-    
+
     def time_projection(
         self, startratemean: float, startratepm: float, final,
         nfinal: int=1, fraction: np.ndarray=None) -> np.ndarray:
