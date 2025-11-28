@@ -263,7 +263,6 @@ def calculate_sl_components(
         #mc_timeseries = np.load(os.path.join(mcdir, f'{scenario}_{comp}.npy'))
         mc_timeseries = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
                                              'data','gmslr',f'{scenario}_{comp}.npy'))
-        print("data read: ", mc_timeseries)
         sampled_mc = mc_timeseries[resamples, :nyrs]
         montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None])
 
