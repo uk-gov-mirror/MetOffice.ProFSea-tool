@@ -62,10 +62,13 @@ def calc_future_sea_level(scenario: str) -> None:
                   'glacier', 'landwater']
 
     # Select dimensions from sample file, [time, realisation]
-    sample = np.load(os.path.join(mcdir, f'{scenario}_expansion.npy'))
+    sample = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
+                                  'data', 'gmslr', f'{scenario}_expansion.npy'))
+    
     nesm = sample.shape[0] # also number of samples to make
     nyrs = sample.shape[1]
-    yrs = np.arange(2007, 2007 + nyrs)
+    
+    yrs = np.arange(2006, 2006 + nyrs)
     console.log(f"Running with {nesm} ensemble members")
 
     grid_path = os.path.join(
@@ -257,7 +260,10 @@ def calculate_sl_components(
         montecarlo_G = da.zeros((nsmps, nyrs, lats, lons), dtype=np.float32) # (no FPs applied)
 
         # Load global projections in for the component
-        mc_timeseries = np.load(os.path.join(mcdir, f'{scenario}_{comp}.npy'))
+        #mc_timeseries = np.load(os.path.join(mcdir, f'{scenario}_{comp}.npy'))
+        mc_timeseries = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
+                                             'data','gmslr',f'{scenario}_{comp}.npy'))
+        print("data read: ", mc_timeseries)
         sampled_mc = mc_timeseries[resamples, :nyrs]
         montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None])
 
@@ -471,6 +477,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
         raise Exception('SCM data must be saved in NetCDF format.')
 
     percentiles = np.arange(101)
+    # percentiles are hard coded. We could make it an user input in future updates.
 
     # Now run the simulations
     console.log(f'Projecting global components for {scenario} scenario...')
@@ -492,15 +499,19 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
         settings["projection_end_year"],
         palmer_method=palmer_method,
         input_ensemble=settings["emulator_settings"]["use_input_ensemble"],
-        output_percentiles=np.arange(101),
+        output_percentiles=percentiles,
         cum_emissions_total=cumulative_emissions[scenario])
     gmslr.project()
 
     console.log('Saving components...')
     gmslr.save_components(
-        os.path.join(settings["emulator_settings"]["gmslr_output_dir"]),
+        os.path.join(settings["baseoutdir"],settings["experiment_name"],
+                     'data', 'gmslr'),
         scenario)
+
+
     console.log('Saved!\n')
+
 
 
 def main():
@@ -518,6 +529,14 @@ def main():
             settings["baseoutdir"], 
             settings["experiment_name"])
     ).mkdir(parents=True, exist_ok=True)
+
+    Path(
+        os.path.join(
+            settings["baseoutdir"],
+            settings["experiment_name"],
+            'data', 'gmslr')
+    ).mkdir(parents=True, exist_ok=True)
+
     Path(
         read_dir()[4]
     ).mkdir(parents=True, exist_ok=True)
