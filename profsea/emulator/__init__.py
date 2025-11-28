@@ -161,7 +161,7 @@ class GMSLREmulator:
         self.OHC_percentile_95 = OHC_percentile_95
         self.cum_emissions_total = cum_emissions_total
         self.palmer_method = palmer_method
-        
+
         # First year of AR5 projections
         self.endofhistory = 2006
 

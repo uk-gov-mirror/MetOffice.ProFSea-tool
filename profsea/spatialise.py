@@ -15,14 +15,12 @@ from netCDF4 import Dataset
 import numpy as np
 from rich.console import Console
 from rich.progress import track
-import scipy
 from scipy.interpolate import RegularGridInterpolator
 from scipy.spatial.distance import cdist
 import xarray as xr
 
 from profsea.config import settings
 from profsea.directories import read_dir
-from profsea.emulator import GMSLREmulator
 from profsea.slr_pkg import choose_montecarlo_dir
 
 console = Console()

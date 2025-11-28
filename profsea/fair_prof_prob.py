@@ -1,7 +1,6 @@
+import argparse
 import concurrent.futures
 import json
-import multiprocessing
-
 
 from fair import FAIR
 from fair.io import read_properties
@@ -9,6 +8,7 @@ from fair.interface import initialise
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from rich_argparse import RichHelpFormatter
 from rich.progress import Progress
 from scipy.spatial.distance import cdist
 import xarray as xr
@@ -23,10 +23,82 @@ worker_scenarios = None
 def init_worker(tas, ohc, emissions, scenarios):
     """Initialize worker with read-only shared data."""
     global worker_tas, worker_ohc, worker_emissions, worker_scenarios
-    worker_tas = tas
-    worker_ohc = ohc
-    worker_emissions = emissions
-    worker_scenarios = scenarios
+    worker_tas = tas.copy()
+    worker_ohc = ohc.copy()
+    worker_emissions = emissions.copy()
+    worker_scenarios = scenarios.copy()
+
+
+def index_df(df: pd.DataFrame, baseline_start: int, baseline_end: int) -> tuple[pd.DataFrame]:
+    meta_cols = ['ensemble_member', 'scenario', 'region', 'variable', 'unit', 'climate_model']
+    existing_meta = [c for c in meta_cols if c in df.columns]
+    df_indexed = df.set_index(existing_meta)
+
+    years = df_indexed.columns.str[:4].astype(int)
+    mask = (years >= 1750) & (years <= 2301)
+    df_indexed = df_indexed.loc[:, mask]
+
+    years = df_indexed.columns.str[:4].astype(int)
+    baseline_mask = (years >= baseline_start) & (years <= baseline_end)
+    baseline_means = df_indexed.loc[:, baseline_mask].mean(axis=1)
+    df_anom = df_indexed.sub(baseline_means, axis=0)
+
+    # Now slice up again
+    mask = (years >= 2006) & (years <= 2300)
+    df_final = df_anom.loc[:, mask].reset_index()
+    return df_final
+
+
+def df_to_arr(df, scenario_order):
+    meta_cols = ['ensemble_member', 'scenario', 'region', 'variable', 'unit', 'climate_model']
+    existing_meta = [c for c in meta_cols if c in df.columns]
+    
+    # Set the index (this creates a MultiIndex including 'scenario')
+    df = df.set_index(existing_meta)
+    array = []
+    for scenario in scenario_order:
+        try:
+            mask = df.index.get_level_values('scenario') == scenario
+            group_df = df.loc[mask]
+        except KeyError:
+             raise ValueError(f"Scenario '{scenario}' not found in the input DataFrame.")
+
+        if group_df.empty:
+             raise ValueError(f"No data found for scenario '{scenario}'")
+
+        # Sort by member to ensure internal alignment
+        group_sorted = group_df.sort_index(level='ensemble_member')
+        scenario_data = group_sorted.values
+        array.append(scenario_data)
+
+    array = np.stack(array, axis=0)
+    array = array.transpose(2, 0, 1)  # (n_scenarios, n_members, n_time)
+    
+    return array
+
+
+def load_magicc_forcing(
+        input_path: str, scenarios: list,
+        baseline_start: int, baseline_end: int) -> tuple[np.ndarray]:
+    df = pd.read_csv(input_path, index_col=0)
+    
+    tas_condition = (
+        (df["variable"] == "Surface Air Temperature Change") & 
+        (df["scenario"].isin(scenarios))
+    )
+    ohc_condition = (
+        (df["variable"] == "Heat Content|Ocean") & 
+        (df["scenario"].isin(scenarios))
+    )
+    tas_df = df.loc[tas_condition]
+    ohc_df = df.loc[ohc_condition]
+
+    tas_df = index_df(tas_df, baseline_start, baseline_end)
+    ohc_df = index_df(ohc_df, baseline_start, baseline_end)
+    tas_arr = df_to_arr(tas_df, scenarios)  # shape (scenario, mem, time)
+    ohc_arr = df_to_arr(ohc_df, scenarios) * 1e21  # convert to J from ZJ
+    return tas_arr, ohc_arr
+
 
 def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[np.ndarray]:
     f = FAIR()
@@ -55,8 +127,8 @@ def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[n
     tas_baseline = f.temperature.loc[dict(layer=0, timebounds=np.arange(baseline_start, baseline_end+1))].mean()
     ohc_baseline = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(baseline_start, baseline_end+1))].mean()
 
-    tas = f.temperature.loc[dict(layer=0, timebounds=np.arange(2006, 2300))] - tas_baseline  # shape (294, 7, 841)
-    ohc = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(2006, 2300))] - ohc_baseline
+    tas = f.temperature.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline  # shape (294, 7, 841)
+    ohc = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(2006, 2301))] - ohc_baseline
     return tas.values, ohc.values
 
 
@@ -74,7 +146,7 @@ def simulation_task(random_idx):
             np.expand_dims(tas_sampled[:, idx], axis=0),
             np.expand_dims(ohc_sampled[:, idx], axis=0),
             scenario,
-            2300,
+            2301,
             input_ensemble=True,
             random_sample=True,
             cum_emissions_total=worker_emissions[scenario],
@@ -88,7 +160,6 @@ def simulation_task(random_idx):
         results[scenario]["greenland"] = emulator.greenland_ar6
         results[scenario]["glaciers"] = emulator.glacier
         results[scenario]["landwater"] = emulator.landwater
-
     return tas_sampled, ohc_sampled, results
 
 
@@ -177,12 +248,13 @@ def save_to_netcdf(components: dict, filename: str) -> None:
 def plot_component(
         ax: plt.Axes, component_dict: dict, component: str, 
         scenarios: list, plot_legend: bool=False) -> None:
-    time = np.arange(2006, 2300)
+    time = np.arange(2006, 2301)
     ssp_colours = {
         "ssp119": tuple(np.array([0, 173, 207]) / 255),
         "ssp126": tuple(np.array([23, 60, 102]) / 255),
         "ssp245": tuple(np.array([247, 148, 32]) / 255),
         "ssp370": tuple(np.array([231, 29, 37]) / 255),
+        "ssp534-over": tuple(np.array([0, 79, 0]) / 255),
         "ssp585": tuple(np.array([149, 27, 30]) / 255)
     }
     for scenario in reversed(scenarios):
@@ -205,10 +277,11 @@ def plot_component(
     if plot_legend:
         ax.legend(frameon=False, loc="upper left")
 
-def main():
+
+def main(args):
     # Set up for main loop
     percentiles = [5, 17, 50, 83, 95]
-    scenarios = ["ssp119", "ssp126", "ssp245", "ssp370", "ssp585"]
+    scenarios = ["ssp119", "ssp126", "ssp245", "ssp370", "ssp534-over", "ssp585"]
 
     emissions_path = "/Users/gregorymunday/Documents/Papers/ProFSea/cmip7-slr/data/cumulative_cmip6_emissions.json"
     with open(emissions_path) as f:
@@ -226,12 +299,17 @@ def main():
         }
 
     # Enter 1000x loop
-    tas, ohc = run_fair(baseline_start, baseline_end, scenarios)
+    if args.input.lower() == "magicc":
+        tas, ohc = load_magicc_forcing(args.input_path, scenarios, baseline_start, baseline_end)
+    elif args.input.lower() == "fair":
+        tas, ohc = run_fair(baseline_start, baseline_end, scenarios)
+    else:
+        raise ValueError("Input source not recognised.")
 
     # Pre-generate the random ensemble member indices
     n_iterations = 1000
     rng = np.random.default_rng()
-    random_indices = rng.integers(0, high=841, size=n_iterations)
+    random_indices = rng.integers(0, high=tas.shape[2], size=n_iterations)
 
     sampled_tas = []
     sampled_ohc = []
@@ -258,7 +336,6 @@ def main():
 
                 progress.update(task, advance=1)
 
-
     # Convert to Numpy arrays
     for scenario, data in components.items():
         for key in data:
@@ -269,7 +346,7 @@ def main():
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections.nc")
+    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_MAGICC_forcing.nc")
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
@@ -296,5 +373,7 @@ def main():
 
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support() 
-    main()
+    p = argparse.ArgumentParser(formatter_class=RichHelpFormatter)
+    p.add_argument("--input", default="fair", required=False, help="Input climate forcing source (default: FaIR)", type=str)
+    p.add_argument("--input_path", required=False, help="Path to input climate forcing", type=str)
+    main(p.parse_args())
