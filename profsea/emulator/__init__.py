@@ -259,11 +259,11 @@ class GMSLREmulator:
         ds = xr.Dataset()
         for name, component in self.get_components().items():
             xr_dataArray = xr.DataArray(component, dims=["percentile", "time"], 
-                                        coords={"percentile": np.arange(0,101), 
+                                        coords={"percentile": self.output_percentiles, 
                                                 "time": np.arange(2006, component.shape[1] + 2006)})
-            xr_dataArray.attrs["units"] = "meter"
+            xr_dataArray.attrs["units"] = "m"
             ds[name] = xr_dataArray
-        ds.to_netcdf(os.path.join(output_dir,f'{scenario_name}.nc'))
+        ds.to_netcdf(os.path.join(output_dir,f'{scenario_name}_global.nc'))
 
     def project(self) -> None:
         """Run the emulator to project GMSLR components.

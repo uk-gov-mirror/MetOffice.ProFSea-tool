@@ -477,6 +477,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
         raise Exception('SCM data must be saved in NetCDF format.')
 
     percentiles = np.arange(101)
+    # percentiles are hard coded. We could make it an user input in future updates.
 
     # Now run the simulations
     console.log(f'Projecting global components for {scenario} scenario...')
@@ -498,7 +499,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
         settings["projection_end_year"],
         palmer_method=palmer_method,
         input_ensemble=settings["emulator_settings"]["use_input_ensemble"],
-        output_percentiles=np.arange(101),
+        output_percentiles=percentiles,
         cum_emissions_total=cumulative_emissions[scenario])
     gmslr.project()
 
