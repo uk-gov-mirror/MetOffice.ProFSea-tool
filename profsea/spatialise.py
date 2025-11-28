@@ -4,7 +4,6 @@ All rights reserved.
 """
 import glob
 import pickle
-import json
 import os
 from pathlib import Path
 import warnings
@@ -16,7 +15,6 @@ import numpy as np
 from rich.console import Console
 from rich.progress import track
 from scipy.interpolate import RegularGridInterpolator
-from scipy.spatial.distance import cdist
 import xarray as xr
 
 from profsea.config import settings
