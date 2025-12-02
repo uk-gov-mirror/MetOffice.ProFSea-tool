@@ -212,12 +212,13 @@ def calc_greenland_fingerprint_ar6() -> da.array:
 
 
 def save_projections(
-        montecarlo_R: da.array, component: str, scenario: str) -> None:
+        montecarlo_R: da.array, component: str, scenario: str, percentile: da.array) -> None:
     """
     Save the regional sea level projections to a file.
     :param montecarlo_R: regional sea level projections
     :param component: sea level component
     :param scenario: emission scenario
+    :param percentile: percentiles used for spatial projections
     """
     sealev_ddir = read_dir()[4]
     file_header = '_'.join([component, scenario, "projection", 
@@ -227,6 +228,17 @@ def save_projections(
 
     # Save the global and local projections
     np.save(os.path.join(sealev_ddir, R_file), montecarlo_R)
+
+    # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
+    xr_dataArray = xr.DataArray(montecarlo_R, dims=["percentile", "time", "lat", "lon"], 
+                                coords={"percentile": percentile, 
+                                        "time": np.arange(2006, montecarlo_R.shape[1] + 2006),
+                                        "lat": np.arange(-90, 90) + 0.5, "lon": np.arange(0,360) + 0.5})
+    xr_dataArray.attrs["units"] = "m"
+    ds = xr_dataArray.to_dataset(name = component)
+
+    R_file = '_'.join([file_header, 'regional']) + '.nc'
+    ds.to_netcdf(os.path.join(sealev_ddir, R_file))
 
 
 def calculate_sl_components(
@@ -286,11 +298,12 @@ def calculate_sl_components(
             del fp_vals
 
         # Take the 0th, 25th, 50th, 75th and 100th percentiles
-        montecarlo_R = da.percentile(montecarlo_R, [0, 25, 50, 75, 100], axis=0)
+        percentile_regional = np.array([0, 25, 50, 75, 100])
+        montecarlo_R = da.percentile(montecarlo_R, percentile_regional, axis=0)
         montecarlo_R = montecarlo_R.compute()
 
         # Create the output sea level projections file directory and filename
-        save_projections(montecarlo_R, comp, scenario)
+        save_projections(montecarlo_R, comp, scenario, percentile_regional)
 
 
 def create_FP_interpolator(
