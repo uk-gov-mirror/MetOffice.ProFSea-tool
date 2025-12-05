@@ -2,6 +2,7 @@ from pathlib import Path
 
 from rich.progress import track
 import numpy as np
+from scipy.signal import fftconvolve
 import xarray as xr
 
 class Antarctica:
@@ -44,18 +45,13 @@ class Antarctica:
     def _impulse_response(self, f_inst_vals, tau):
         """
         """
-        n = len(f_inst_vals)
-        # Avoid division by zero if tau is tiny
-        tau = max(tau, 1e-3)
-        decay_factors = np.exp(-np.arange(n) / tau) * (1 / tau)
+        n_time = f_inst_vals.shape[-1]
+        tau = max(tau, 1e-3)  # avoid zero division if tau is v small
+        decay_factors = np.exp(-np.arange(n_time) / tau) * (1 / tau)
         
-        # Efficient convolution
-        # Note: scipy.signal.convolve is usually faster for large n, 
-        # but keeping your implementation for consistency.
-        response = np.zeros(n)
-        for k in range(n):
-            response[k] = np.sum(decay_factors[:k+1] * f_inst_vals[k::-1])
-        return response
+        kernel = decay_factors[None, :]
+        response = fftconvolve(f_inst_vals, kernel, mode='full', axes=-1)  # shape (n_samples, 2*n_time - 1)
+        return response[:, :n_time]
 
 
     def predict(self, tas: np.ndarray, tas_int: np.ndarray, display_progress=True):
@@ -78,6 +74,5 @@ class Antarctica:
             f_vals = self._inst_function(tas[None, :], tas_int[None, :], gen_p[None, :], resid_p)
             
             # Convolve
-            for sample in range(self.n_samples):
-                all_preds[model, sample, :] = self._impulse_response(f_vals[sample], tau)
+            all_preds[model, :, :] = self._impulse_response(f_vals, tau)
         return all_preds
