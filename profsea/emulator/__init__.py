@@ -20,6 +20,8 @@ from scipy.spatial.distance import cdist
 from scipy.stats import norm, truncnorm
 import xarray as xr
 
+from .antarctica import Antarctica
+
 console = Console()
 
 @functools.lru_cache(maxsize=1)

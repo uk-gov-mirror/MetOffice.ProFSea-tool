@@ -29,23 +29,30 @@ def init_worker(tas, ohc, emissions, scenarios):
     worker_scenarios = scenarios.copy()
 
 
-def index_df(df: pd.DataFrame, baseline_start: int, baseline_end: int) -> tuple[pd.DataFrame]:
+def index_df(df: pd.DataFrame, baseline_start: int, baseline_end: int) -> pd.DataFrame:
     meta_cols = ['ensemble_member', 'scenario', 'region', 'variable', 'unit', 'climate_model']
     existing_meta = [c for c in meta_cols if c in df.columns]
     df_indexed = df.set_index(existing_meta)
 
-    years = df_indexed.columns.str[:4].astype(int)
-    mask = (years >= 1750) & (years <= 2301)
-    df_indexed = df_indexed.loc[:, mask]
+    years = df_indexed.columns.astype(str).str[:4].astype(int)
+    df_indexed.columns = years
 
-    years = df_indexed.columns.str[:4].astype(int)
-    baseline_mask = (years >= baseline_start) & (years <= baseline_end)
+    mask_full = (years >= 1750) & (years <= 2300)
+    df_indexed = df_indexed.loc[:, mask_full]
+
+    years_sliced = df_indexed.columns
+    baseline_mask = (years_sliced >= baseline_start) & (years_sliced <= baseline_end)
+    
+    if not baseline_mask.any():
+        raise ValueError(f"No years found in baseline range {baseline_start}-{baseline_end}")
+
     baseline_means = df_indexed.loc[:, baseline_mask].mean(axis=1)
     df_anom = df_indexed.sub(baseline_means, axis=0)
-
-    # Now slice up again
-    mask = (years >= 2006) & (years <= 2300)
-    df_final = df_anom.loc[:, mask].reset_index()
+    years_final = df_anom.columns
+    mask_final = (years_final >= 2006) & (years_final <= 2300)
+    
+    df_final = df_anom.loc[:, mask_final].reset_index()
+    
     return df_final
 
 
