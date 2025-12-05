@@ -112,9 +112,22 @@ def calc_gia_contribution(
 
     file_header = '_'.join(['gia', scenario, "projection", 
                     f"{settings['projection_end_year']}"])
-    R_file = '_'.join([file_header, 'regional']) + '.npy'
+    sealev_ddir = read_dir()[4]
+
+    # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
+    xr_dataArray = xr.DataArray(GIA_series, dims=["percentile", "time", "lat", "lon"], 
+                                coords={"time": np.arange(2006, GIA_series.shape[1] + 2006),
+                                        "lat": np.arange(-90, 90) + 0.5, "lon": np.arange(0, 360) + 0.5})
+    xr_dataArray.attrs["units"] = "m"
+    xr_dataArray.attrs["long_name"] = f"Regional GIA sea-level projections"
+    ds = xr_dataArray.to_dataset(name='gia')
+
+    ds.attrs["source"] = "ProFSea-Climate v0.1"
+
+    R_file = '_'.join([file_header, 'regional']) + '.nc'
+    encoding = {'gia': {"zlib": True, "complevel": 5}}
+    ds.to_netcdf(os.path.join(sealev_ddir, R_file), encoding=encoding)
     
-    np.save(os.path.join(read_dir()[4], R_file), GIA_series)
     del GIA_series
 
 
@@ -223,22 +236,21 @@ def save_projections(
     sealev_ddir = read_dir()[4]
     file_header = '_'.join([component, scenario, "projection", 
                             f"{settings['projection_end_year']}"])
-    # G_file = '_'.join([file_header, 'global']) + '.npy'
-    R_file = '_'.join([file_header, 'regional']) + '.npy'
-
-    # Save the global and local projections
-    np.save(os.path.join(sealev_ddir, R_file), montecarlo_R)
 
     # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
     xr_dataArray = xr.DataArray(montecarlo_R, dims=["percentile", "time", "lat", "lon"], 
                                 coords={"percentile": percentile, 
                                         "time": np.arange(2006, montecarlo_R.shape[1] + 2006),
-                                        "lat": np.arange(-90, 90) + 0.5, "lon": np.arange(0,360) + 0.5})
+                                        "lat": np.arange(-90, 90) + 0.5, "lon": np.arange(0, 360) + 0.5})
     xr_dataArray.attrs["units"] = "m"
-    ds = xr_dataArray.to_dataset(name = component)
+    xr_dataArray.attrs["long_name"] = f"Regional {component} sea-level projections"
+    ds = xr_dataArray.to_dataset(name=component)
+
+    ds.attrs["source"] = "ProFSea-Climate v0.1"
 
     R_file = '_'.join([file_header, 'regional']) + '.nc'
-    ds.to_netcdf(os.path.join(sealev_ddir, R_file))
+    encoding = {component: {"zlib": True, "complevel": 5}}
+    ds.to_netcdf(os.path.join(sealev_ddir, R_file), encoding=encoding)
 
 
 def calculate_sl_components(
