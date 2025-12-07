@@ -6,6 +6,7 @@
 This is the experimental science branch of ProFSea, dedicated to extending the capabilities of the existing ProFSea-tool. These extensions have not yet been published or peer-reviewed.
 
 Ongoing developments include:
+
 -[x][🛠️] Full spatial field projections of regional sea-level change
 -[x][🛠️] Use any input climate forcing to produce ProFSea projections
 -[][🛠️] Updates to sea-level components based on the latest evidence in the literature
