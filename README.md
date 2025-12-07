@@ -7,12 +7,12 @@ This is the experimental science branch of ProFSea, dedicated to extending the c
 
 Ongoing developments include:
 
-- [x][🛠️] Full spatial field projections of regional sea-level change
-- [x][🛠️] Use any input climate forcing to produce ProFSea projections
-- [][🛠️] Updates to sea-level components based on the latest evidence in the literature
-- [][🛠️] Observational constraints to projection ensembles
-- [][🛠️] Structural enhancements such as updated workflows, GitHub Actions and general reformatting
-- [][🛠️] Full code documentation
+- [x] [🛠️] Full spatial field projections of regional sea-level change
+- [x] [🛠️] Use any input climate forcing to produce ProFSea projections
+- [ ] [🛠️] Updates to sea-level components based on the latest evidence in the literature
+- [ ] [🛠️] Observational constraints to projection ensembles
+- [ ] [🛠️] Structural enhancements such as updated workflows, GitHub Actions and general reformatting
+- [ ] [🛠️] Full code documentation
 
 ## Contributors
 Several people have contributed to the development of the ProFSea tool and User Guide documentation, namely: Rachel Perks, Jacob Cheung, Benjamin Harrison, Katie Hodge, Mathew Palmer, Michael Sanderson, Hamish Steptoe, Jennifer Weeks and Gregory Munday.
