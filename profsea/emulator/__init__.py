@@ -6,11 +6,12 @@ All rights reserved.
 # Calculate Monte Carlo projections of GMSLR using methods 
 # from Jonathon Gregory and AR5. Staying close to JG's original
 # code where possible.
+import atexit
 import os
 import concurrent
 from collections.abc import Sequence
 import functools
-import atexit
+import math
 from pathlib import Path
 
 import numpy as np
@@ -283,7 +284,8 @@ class GMSLREmulator:
         else:
             self.run_serial_projections(T_int_med, T_int_ens, T_ens, fraction)
         
-        self.antnet = self.antsmb + self.antdyn
+        # self.antnet = self.antsmb + self.antdyn
+        self.antnet = self.new_ant
         self.gmslr = self.glacier + self.greenland_ar6 + self.antnet + self.landwater + self.expansion
 
         rng = np.random.default_rng()
@@ -335,8 +337,29 @@ class GMSLREmulator:
         # project_landwater corresponds to 'landwater_ar6' key in the parallel map
         self.landwater_ar6 = self.project_landwater()
 
+        wa_path = Path(__file__).parent / "aux_data" / "wa_params_fastslow.nc"
+        ea_path = Path(__file__).parent / "aux_data" / "ea_params_fastslow.nc"
+        pen_path = Path(__file__).parent / "aux_data" / "pen_params_fastslow.nc"
+        is_samples = math.ceil(self.nm / 14)  # 43 IS models
+        for T, T_int in zip(T_ens, T_int_ens):
+            wa = Antarctica(wa_path, samples=is_samples)
+            ea = Antarctica(ea_path, samples=is_samples)
+            pen = Antarctica(pen_path, samples=is_samples)
+            self.wa = wa.predict(T, T_int, display_progress=False)  # shape (ismodel, n_samples, time) 
+            self.ea = ea.predict(T, T_int, display_progress=False)
+            self.pen = pen.predict(T, T_int, display_progress=False)
+            self.new_ant = self.wa + self.ea + self.pen
+            self.new_ant = np.reshape(self.new_ant,
+                (self.new_ant.shape[0] * self.new_ant.shape[1], 
+                self.new_ant.shape[2]))
+
+        # Resample to get exactly self.nm members
+        rng = np.random.default_rng()
+        rand_idx = rng.integers(low=0, high=self.nm, size=self.nm)
+        self.new_ant = self.new_ant[rand_idx, :]
+
         self.greenland_ar5 = self.greendyn + self.greensmb
-            
+    
     def run_parallel_projections(
             self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
             T_ens: np.ndarray, fraction: np.ndarray) -> None:

@@ -353,7 +353,7 @@ def main(args):
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_MAGICC_forcing.nc")
+    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_NEW_AIS_FASTSLOW.nc")
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
@@ -376,7 +376,7 @@ def main(args):
     sampled_tas = np.asarray(sampled_tas) # shape (nens, time, nscen)
     sampled_ohc = np.asarray(sampled_ohc)
 
-    plot_samples(sampled_tas[:, :, 0], sampled_ohc[:, :, 0])
+    plot_samples(sampled_tas[:, :, -1], sampled_ohc[:, :, -1])
 
 
 if __name__ == "__main__":

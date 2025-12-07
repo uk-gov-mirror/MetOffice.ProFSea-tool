@@ -9,11 +9,11 @@ class Antarctica:
     def __init__(
             self, 
             params_path: Path, 
-            n_samples: int=1000) -> None:
+            samples: int=1000) -> None:
         """
         """
         self.param_ds = xr.load_dataset(params_path)
-        self.n_samples = n_samples
+        self.n_samples = samples
 
         self.n_models = self.param_ds.coords["model"].shape[0]
         n_params = self.param_ds.coords["param"].shape[0]
@@ -35,24 +35,21 @@ class Antarctica:
             mv_dists.append(samples)
         return np.array(mv_dists)
 
-    def _inst_function(self, tas, t_int, params_gen, params_resid):
+    def _impulse_response_term(
+            self, 
+            tas: np.ndarray, 
+            tau: float, 
+            params: np.ndarray):
         """
         """
-        # params: [a, b]
-        p = params_gen + params_resid
-        return (p[:, 0, None] * tas) + (p[:, 1, None] * t_int)
+        n_time = tas.shape[-1]
+        a_lin = params[:, 0]
 
-    def _impulse_response(self, f_inst_vals, tau):
-        """
-        """
-        n_time = f_inst_vals.shape[-1]
-        tau = max(tau, 1e-3)  # avoid zero division if tau is v small
         decay_factors = np.exp(-np.arange(n_time) / tau) * (1 / tau)
+        t_conv = fftconvolve(tas, decay_factors, mode='full')[:n_time]
         
-        kernel = decay_factors[None, :]
-        response = fftconvolve(f_inst_vals, kernel, mode='full', axes=-1)  # shape (n_samples, 2*n_time - 1)
-        return response[:, :n_time]
-
+        term_slow = (a_lin[:, None] * t_conv[None, :])
+        return term_slow
 
     def predict(self, tas: np.ndarray, tas_int: np.ndarray, display_progress=True):
         """
@@ -67,12 +64,13 @@ class Antarctica:
                 description="Projecting AIS response... ", 
                 disable=not display_progress):
             tau = self.param_ds.tau[model].values
-            gen_p = self.param_ds.general_params[model].values  # [alpha, beta, gamma]
+            general_p = self.param_ds.general_params[model].values  # [alpha, beta, gamma]
             resid_p = self.mv_dists[model]  # [n_samples, n_params]
-            
-            # Calculate forcing for all samples at once
-            f_vals = self._inst_function(tas[None, :], tas_int[None, :], gen_p[None, :], resid_p)
-            
+
+            total_params = general_p + resid_p
+            term_slow = self._impulse_response_term(tas, tau, total_params)
+            term_fast = total_params[:, 1][:, None] * tas_int[None, :]
+
             # Convolve
-            all_preds[model, :, :] = self._impulse_response(f_vals, tau)
+            all_preds[model, :, :] = term_fast + term_slow
         return all_preds
