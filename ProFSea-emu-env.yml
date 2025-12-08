@@ -9,7 +9,7 @@ dependencies:
   - netcdf4
   - numpy
   - pandas
-  - python=12
+  - python=3.12
   - pyyaml
   - rich
   - scipy
