@@ -1,15 +1,22 @@
-# ProFSea-tool
+# ProFSea-Climate
 
 [![DOI](https://zenodo.org/badge/713453340.svg)](https://zenodo.org/doi/10.5281/zenodo.10255467)
 
-The ProFSea tool should be cited as: Perks, R., & Weeks, J. (2023). MetOffice/ProFSea-tool: v1.0.0 (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.10255468
+🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 <br />
+**Projections created using this branch are currently not fit for any use other than in the development of this repository.** <br />
+🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧
 
-## User Guide
-A user guide summarising the underpinning science on sea-level projections and providing guidance on how to set-up and run the Met Office Projecting Future Sea Level (ProFSea) tool can be found here: [10.5281/zenodo.10134070](https://zenodo.org/doi/10.5281/zenodo.10134070).
+## About
+This is the experimental science branch of ProFSea, dedicated to extending the capabilities of the existing ProFSea-tool. These extensions have not yet been published or peer-reviewed.
 
-Users are advised to read this guide before using any products as it describes the data availability, the main outputs from the tool and the caveats and limitations.
+Ongoing developments include:
 
-The ProFSea tool user guide should be cited as: Perks, R. J. (2023). Met Office Projecting Future Sea Level (ProFSea) tool - User Guide (1.1). Met Office. https://doi.org/10.5281/zenodo.10245409
+- [x] 🛠️ Full spatial field projections of regional sea-level change
+- [x] 🛠️ Use any input climate forcing to produce ProFSea projections
+- [ ] 🛠️ Updates to sea-level components based on the latest evidence in the literature
+- [ ] 🛠️ Observational constraints to projection ensembles
+- [ ] 🛠️ Structural enhancements such as updated workflows, GitHub Actions and general reformatting
+- [ ] 🛠️ Full code documentation
 
 ## Contributors
 Several people have contributed to the development of the ProFSea tool and User Guide documentation, namely: Rachel Perks, Jacob Cheung, Benjamin Harrison, Katie Hodge, Mathew Palmer, Michael Sanderson, Hamish Steptoe, Jennifer Weeks and Gregory Munday.
