@@ -3,6 +3,8 @@
 [![DOI](https://zenodo.org/badge/713453340.svg)](https://zenodo.org/doi/10.5281/zenodo.10255467)
 
 ## About
+🚧🚧 **Projections created using this branch are currently not fit for any use other than the development of this repository** 🚧🚧
+
 This is the experimental science branch of ProFSea, dedicated to extending the capabilities of the existing ProFSea-tool. These extensions have not yet been published or peer-reviewed.
 
 Ongoing developments include:
