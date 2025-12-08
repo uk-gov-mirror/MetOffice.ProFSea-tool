@@ -2,6 +2,10 @@
 
 [![DOI](https://zenodo.org/badge/713453340.svg)](https://zenodo.org/doi/10.5281/zenodo.10255467)
 
+🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 <br />
+**Projections created using this branch are currently not fit for any use other than in the development of this repository.** <br />
+🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧 &emsp; 🚧
+
 ## About
 This is the experimental science branch of ProFSea, dedicated to extending the capabilities of the existing ProFSea-tool. These extensions have not yet been published or peer-reviewed.
 
