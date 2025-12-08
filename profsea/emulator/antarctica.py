@@ -38,7 +38,7 @@ class Antarctica:
     def _impulse_response_term(
             self, 
             tas: np.ndarray, 
-            tau: float, 
+            tau: float,
             params: np.ndarray):
         """
         """
@@ -46,9 +46,9 @@ class Antarctica:
         a_lin = params[:, 0]
 
         decay_factors = np.exp(-np.arange(n_time) / tau) * (1 / tau)
-        t_conv = fftconvolve(tas, decay_factors, mode='full')[:n_time]
+        t_conv = np.cumsum(fftconvolve(tas, decay_factors, mode='full')[:n_time], axis=0)
         
-        term_slow = (a_lin[:, None] * t_conv[None, :])
+        term_slow = (a_lin[:, None][None, :] * t_conv[None, :])
         return term_slow
 
     def predict(self, tas: np.ndarray, tas_int: np.ndarray, display_progress=True):

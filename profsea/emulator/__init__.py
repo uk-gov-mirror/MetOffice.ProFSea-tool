@@ -337,9 +337,9 @@ class GMSLREmulator:
         # project_landwater corresponds to 'landwater_ar6' key in the parallel map
         self.landwater_ar6 = self.project_landwater()
 
-        wa_path = Path(__file__).parent / "aux_data" / "wa_params_fastslow.nc"
-        ea_path = Path(__file__).parent / "aux_data" / "ea_params_fastslow.nc"
-        pen_path = Path(__file__).parent / "aux_data" / "pen_params_fastslow.nc"
+        wa_path = Path(__file__).parent / "aux_data" / "wa_params_rate.nc"
+        ea_path = Path(__file__).parent / "aux_data" / "ea_params_rate.nc"
+        pen_path = Path(__file__).parent / "aux_data" / "pen_params_rate.nc"
         is_samples = math.ceil(self.nm / 14)  # 43 IS models
         for T, T_int in zip(T_ens, T_int_ens):
             wa = Antarctica(wa_path, samples=is_samples)

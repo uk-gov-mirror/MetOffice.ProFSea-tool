@@ -353,7 +353,7 @@ def main(args):
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_NEW_AIS_FASTSLOW.nc")
+    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_NEW_AIS_RATE.nc")
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
