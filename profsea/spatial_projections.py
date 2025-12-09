@@ -26,6 +26,9 @@ from profsea.slr_pkg import choose_montecarlo_dir
 console = Console()
 warnings.filterwarnings("ignore")
 
+# from dask.distributed import Client
+# client = Client()  # start distributed scheduler locally.
+
 def calc_baseline_period(yrs: np.array) -> float:
     """
     Baseline years used for IPCC AR5 and Palmer et al 2020 -- 1986-2005
@@ -155,15 +158,13 @@ def calc_expansion_contribution(
     return rand_coeffs
 
 
-def calc_landwater_contribution(interpolator: dict) -> da.array:
+def calc_landwater_contribution(data: dict, lats: int, lons: int) -> da.array:
     """
     Calculate the regional landwater contribution to sea level rise.
     :param interpolator: dictionary of interpolator objects
     :return: numpy array of landwater values
     """
-    landwater_FP_interpolator = interpolator['landwater']
-    landwater_vals = da.from_array(
-        landwater_FP_interpolator.values.astype(np.float32).data)
+    landwater_vals = interpolate(data, lats, lons)
     landwater_vals = da.roll(landwater_vals, 180, axis=1)
     return landwater_vals
 
@@ -194,7 +195,7 @@ def calc_fingerprint_contributions(
     fp_vals = []
     for FP_dict in FPlist:
         # Interpolate values to target lat/lon
-        val = FP_dict[comp].values
+        val = FP_dict[comp]
         val = interpolate(val, lats, lons)
         val = np.roll(val, 180, axis=1)
         fp_vals.append(val)
@@ -254,7 +255,7 @@ def save_projections(
 
     R_file = '_'.join([file_header, 'regional']) + '.nc'
     encoding = {component: {"zlib": True, "complevel": 5}}
-    ds.to_netcdf(os.path.join(sealev_ddir, R_file), encoding=encoding)
+    ds.to_netcdf(os.path.join(sealev_ddir, R_file), encoding=encoding, compute=True)
 
 
 def calculate_sl_components(
@@ -300,7 +301,7 @@ def calculate_sl_components(
             del sampled_coeffs
 
         elif comp == "landwater":
-            landwater_vals = calc_landwater_contribution(FPlist[0])
+            landwater_vals = calc_landwater_contribution(FPlist[0], lats, lons)
             montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * landwater_vals[None, None, :, :]
             del landwater_vals
 
@@ -316,7 +317,6 @@ def calculate_sl_components(
         # Take the 0th, 25th, 50th, 75th and 100th percentiles
         percentile_regional = np.array([0, 25, 50, 75, 100])
         montecarlo_R = da.percentile(montecarlo_R, percentile_regional, axis=0)
-        montecarlo_R = montecarlo_R.compute()
 
         # Create the output sea level projections file directory and filename
         save_projections(montecarlo_R, comp, scenario, percentile_regional)
@@ -427,24 +427,24 @@ def load_fingerprints(components: list) -> tuple:
 
     # Only 1 fingerprint for Landwater
     comp = "landwater"
-    slangen_FPs[comp] = xr.load_dataset(
-        settings["fingerprints"],
-        comp + "_slangen_nomask.nc").values
+    slangen_FPs[comp] = da.from_array(xr.load_dataarray(
+        os.path.join(settings["fingerprints"],
+        comp + "_slangen_nomask.nc")).values)
 
     # Other FPs have multiple components
     components_todo = [
         c for c in components 
         if c not in ["expansion", "landwater", "greenland"]]
     for comp in components_todo:
-        slangen_FPs[comp] = xr.load_dataset(
-            settings["fingerprints"],
-            comp + "_slangen_nomask.nc").values
-        spada_FPs[comp] = xr.load_dataset(
-            settings["fingerprints"],
-            comp + "_spada_nomask.nc").values
-        klemann_FPs[comp] = xr.load_dataset(
-            settings["fingerprints"],
-            comp + "_klemann_nomask.nc").values
+        slangen_FPs[comp] = da.from_array(xr.load_dataarray(
+            os.path.join(settings["fingerprints"],
+            comp + "_slangen_nomask.nc")).values)
+        spada_FPs[comp] = da.from_array(xr.load_dataarray(
+            os.path.join(settings["fingerprints"],
+            comp + "_spada_nomask.nc")).values)
+        klemann_FPs[comp] = da.from_array(xr.load_dataarray(
+            os.path.join(settings["fingerprints"],
+            comp + "_klemann_nomask.nc")).values)
 
     FPlist = [slangen_FPs, spada_FPs, klemann_FPs]
     nFPs = len(FPlist)
@@ -514,7 +514,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
         cum_emissions_total=cumulative_emissions[scenario])
     gmslr.project()
 
-    console.log('Saving components...')
+    console.log('Saving global components...')
     gmslr.save_components(
         os.path.join(settings["baseoutdir"],settings["experiment_name"],
                      'data', 'gmslr'),
