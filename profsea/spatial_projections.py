@@ -20,7 +20,7 @@ import xarray as xr
 
 from profsea.config import settings
 from profsea.directories import read_dir
-from profsea.emulator import GMSLREmulator
+from profsea.emulator import Global
 from profsea.slr_pkg import choose_montecarlo_dir
 
 console = Console()
@@ -509,7 +509,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
     T_change = sample_members_2D(T_change, percentiles)
     OHC_change = sample_members_2D(OHC_change, percentiles)
 
-    gmslr = GMSLREmulator(
+    gmslr = Global(
         T_change,
         OHC_change,
         scenario,

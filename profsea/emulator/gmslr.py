@@ -20,6 +20,8 @@ from scipy.spatial.distance import cdist
 from scipy.stats import norm, truncnorm
 import xarray as xr
 
+from profsea.utils import sample_members_2D
+
 console = Console()
 
 @functools.lru_cache(maxsize=1)
@@ -220,15 +222,6 @@ class Global:
         """List the available SLR components."""
         component_dict = self.get_components()
         print(list(component_dict.keys()))
-
-    def sample_members_2D(
-            self, array: np.ndarray) -> np.ndarray:
-        """Sample real ensemble members from a 2D numpy array."""
-        # Caculate statistical timeseries, then match with closest real timeseries 
-        array_percentiles = np.percentile(array, self.output_percentiles, axis=0)
-        distances = cdist(array_percentiles, array)
-        mem_indices = np.argmin(distances, axis=1)
-        return array[mem_indices]
     
     def save_components(self, output_dir: str, scenario_name: str) -> None:
         """Save all SLR components as .npy files to a directory.
@@ -299,18 +292,18 @@ class Global:
         # TODO Parallelise this section as it's a bit slow
         if self.output_percentiles is not None:
             console.log(f"Sampling {len(self.output_percentiles)} members per component...")
-            self.gmslr = self.sample_members_2D(self.gmslr)
-            self.expansion = self.sample_members_2D(self.expansion)
-            self.antnet = self.sample_members_2D(self.antnet)
-            self.antdyn = self.sample_members_2D(self.antdyn)
-            self.antsmb = self.sample_members_2D(self.antsmb)
-            self.glacier = self.sample_members_2D(self.glacier)
-            self.greenland_ar6 = self.sample_members_2D(self.greenland_ar6)
-            self.landwater = self.sample_members_2D(self.landwater)
-            self.greensmb = self.sample_members_2D(self.greensmb)
-            self.greendyn = self.sample_members_2D(self.greendyn)
-            # self.greenland_ar5 = self.sample_members_2D(self.greenland_ar5)
-            # self.landwater_ar6 = self.sample_members_2D(self.landwater_ar6)
+            self.gmslr = sample_members_2D(self.gmslr)
+            self.expansion = sample_members_2D(self.expansion, self.output_percentiles)
+            self.antnet = sample_members_2D(self.antnet, self.output_percentiles)
+            self.antdyn = sample_members_2D(self.antdyn, self.output_percentiles)
+            self.antsmb = sample_members_2D(self.antsmb, self.output_percentiles)
+            self.glacier = sample_members_2D(self.glacier, self.output_percentiles)
+            self.greenland_ar6 = sample_members_2D(self.greenland_ar6, self.output_percentiles)
+            self.landwater = sample_members_2D(self.landwater, self.output_percentiles)
+            self.greensmb = sample_members_2D(self.greensmb, self.output_percentiles)
+            self.greendyn = sample_members_2D(self.greendyn, self.output_percentiles)
+            # self.greenland_ar5 = self.sample_members_2D(self.greenland_ar5, self.output_percentiles)
+            # self.landwater_ar6 = self.sample_members_2D(self.landwater_ar6, self.output_percentiles)
 
     def run_serial_projections(
             self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
