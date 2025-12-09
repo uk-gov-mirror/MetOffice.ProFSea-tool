@@ -16,8 +16,8 @@ siteinfo:
 
 # Base output directory
 #   N.B. the code will add region to the output directory
-experiment_name: 'cmip7_example'
-baseoutdir: '/add/your/directory/'
+experiment_name: 'exp_name' # str
+baseoutdir: '/add/your/directory/' # all output will be saved inside baseoutdir/exp_name/
 
 # Set the end year of the projection(s)
 projection_end_year: 2300 # int between 2050 and 2300
@@ -26,13 +26,14 @@ projection_end_year: 2300 # int between 2050 and 2300
 emulator_settings:
     emulator_mode: true # bool
     use_input_ensemble: true # bool
-    gmslr_output_dir: '/ProFSea/ProFSea-tool/data/runs/gmslr'
+    gmslr_output_dir: 'gmslr' # str # directory name to save global projections
+    spatial_output_dir: 'sea_level_projections' # str # directory name to save spatial projections
     emulator_scenario: ['high-extension', 'high-overshoot', 'medium-extension', 'medium-overshoot', 'low', 'verylow', 'verylow-overshoot'] # str
     
 scm_data:
-    temperature: '/results/fair_output/cmip7_temperature.nc' # str
-    ocean_heat_content: '/results/fair_output/cmip7_ohc.nc' # str
-    cumulative_emissions: '/data/cumulative_cmip7_emissions.json' # str
+    temperature: '/path/to/temperature.nc' # str # global-mean surface temperature file
+    ocean_heat_content: '/path/to/ohc.nc' # str # ocean heat content file 
+    cumulative_emissions: '/path/to/emissions.json' # str # cumulative emissions file
 
 # Science method
 #   UKCP18 --> sciencemethod: 'UK'
