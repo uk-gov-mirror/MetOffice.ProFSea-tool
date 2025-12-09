@@ -39,6 +39,7 @@ class Antarctica:
             self, 
             tas: np.ndarray, 
             tau: float,
+            gamma: float,
             params: np.ndarray):
         """
         """
@@ -46,7 +47,8 @@ class Antarctica:
         a_lin = params[:, 0]
 
         decay_factors = np.exp(-np.arange(n_time) / tau) * (1 / tau)
-        t_conv = np.cumsum(fftconvolve(tas, decay_factors, mode='full')[:n_time], axis=0)
+        forcing_base = np.sign(tas) * (tas ** gamma)
+        t_conv = np.cumsum(fftconvolve(forcing_base, decay_factors, mode='full')[:n_time], axis=0)
         
         term_slow = (a_lin[:, None][None, :] * t_conv[None, :])
         return term_slow
@@ -55,7 +57,7 @@ class Antarctica:
         """
         """
         n_time = tas.shape[0]
-        
+
         # Shape: (n_models, n_samples, n_time)
         all_preds = np.zeros((self.n_models, self.n_samples, n_time))
         
@@ -64,11 +66,12 @@ class Antarctica:
                 description="Projecting AIS response... ", 
                 disable=not display_progress):
             tau = self.param_ds.tau[model].values
+            gamma = self.param_ds.gamma[model].values
             general_p = self.param_ds.general_params[model].values  # [alpha, beta, gamma]
             resid_p = self.mv_dists[model]  # [n_samples, n_params]
 
             total_params = general_p + resid_p
-            term_slow = self._impulse_response_term(tas, tau, total_params)
+            term_slow = self._impulse_response_term(tas, tau, gamma, total_params)
             term_fast = total_params[:, 1][:, None] * tas_int[None, :]
 
             # Convolve
