@@ -168,6 +168,26 @@ def calc_landwater_contribution(interpolator: dict) -> da.array:
     return landwater_vals
 
 
+def interpolate(data: np.ndarray, lats: int, lons: int) -> np.ndarray:
+    """
+    """
+    original_da = xr.DataArray(
+        data,
+        coords=[
+            ("lat", np.linspace(90, -90, data.shape[0])), 
+            ("lon", np.linspace(-180, 180, data.shape[1], endpoint=False))
+        ],
+        name="v")
+
+    target_lat = np.linspace(90, -90, lats) + 0.5
+    target_lon = np.linspace(-180, 180, lons, endpoint=False) + 0.5
+    data_interp = original_da.interp(
+        lat=target_lat, lon=target_lon, method="linear").data
+
+    data_interp = np.roll(data_interp, 180, axis=1)
+    return data_interp
+
+
 def calc_fingerprint_contributions(
     FPlist: list, comp: str, lats: int, lons: int) -> da.array:
     # Initiate an empty list for fingerprint values
@@ -175,29 +195,15 @@ def calc_fingerprint_contributions(
     for FP_dict in FPlist:
         # Interpolate values to target lat/lon
         val = FP_dict[comp].values
-        if val.shape != (lats, lons):
-            original_da = xr.DataArray(
-                val,
-                coords=[
-                    ("lat", np.linspace(90, -90, 360)), 
-                    ("lon", np.linspace(-180, 180, 720, endpoint=False))
-                ],
-                name="v")
-            target_lat = np.linspace(90, -90, 180) + 0.5
-            target_lon = np.linspace(-180, 180, 360, endpoint=False) + 0.5
-            val = original_da.interp(
-                lat=target_lat, lon=target_lon, method="linear").data
-            val = np.roll(val, 180, axis=1)
-        else:
-            val = np.roll(val, 180, axis=1)
-            
+        val = interpolate(val, lats, lons)
+        val = np.roll(val, 180, axis=1)
         fp_vals.append(val)
 
     fp_vals = da.from_array(np.array(fp_vals, dtype=np.float32))
     return fp_vals
 
 
-def calc_greenland_fingerprint_ar6() -> da.array:
+def calc_greenland_fingerprint_ar6(lats: int, lons: int) -> da.array:
     """Load and prepare the GIS fingerprint.
 
     This fingerprint was/is used by FACTS for AR6 projections, and was 
@@ -211,8 +217,8 @@ def calc_greenland_fingerprint_ar6() -> da.array:
 
     # Interpolate to (180, 360) grid
     fp_vals = fp_ds.fp.interp(
-        lat=np.linspace(-90, 90, 180, endpoint=False) + 0.5, 
-        lon=np.linspace(0, 360, 360, endpoint=False) + 0.5, 
+        lat=np.linspace(-90, 90, lats, endpoint=False) + 0.5, 
+        lon=np.linspace(0, 360, lons, endpoint=False) + 0.5, 
         method="linear").data * 1000  # convert mm to m SLE per m GMSLR
 
     # Flip vertically and roll by 180 degrees
@@ -299,7 +305,7 @@ def calculate_sl_components(
             del landwater_vals
 
         elif comp == "greenland":
-            greenland_fp = calc_greenland_fingerprint_ar6()
+            greenland_fp = calc_greenland_fingerprint_ar6(lats, lons)
             montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * greenland_fp[None, None, :, :]
 
         else:
