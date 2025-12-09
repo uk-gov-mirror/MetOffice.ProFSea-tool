@@ -26,9 +26,6 @@ from profsea.slr_pkg import choose_montecarlo_dir
 console = Console()
 warnings.filterwarnings("ignore")
 
-# from dask.distributed import Client
-# client = Client()  # start distributed scheduler locally.
-
 def calc_baseline_period(yrs: np.array) -> float:
     """
     Baseline years used for IPCC AR5 and Palmer et al 2020 -- 1986-2005
