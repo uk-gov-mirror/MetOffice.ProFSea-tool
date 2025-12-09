@@ -14,13 +14,12 @@ from netCDF4 import Dataset
 import numpy as np
 from rich.console import Console
 from rich.progress import track
-import scipy
-from scipy.spatial.distance import cdist
 import xarray as xr
 
 from profsea.config import settings
 from profsea.directories import read_dir
 from profsea.emulator import Global
+from profsea.utils import sample_members_2D
 from profsea.slr_pkg import choose_montecarlo_dir
 
 console = Console()
@@ -455,20 +454,6 @@ def load_fingerprints(components: list) -> tuple:
     FPlist = [slangen_FPs, spada_FPs, klemann_FPs]
     nFPs = len(FPlist)
     return nFPs, FPlist
-
-
-def sample_members_2D(array: np.ndarray, percentile_seq: list|np.ndarray) -> np.ndarray:
-        """Sample real ensemble members from a 2D numpy array."""
-        # Caculate statistical timeseries, then match with closest real timeseries 
-        array_percentiles = np.percentile(array, percentile_seq, axis=0)
-        array_perc_diffs = array[None, :, :] - array_percentiles[:, None, :]
-
-        # Calculate distances between statistical percentiles and real members
-        distances = scipy.linalg.norm(array_perc_diffs, axis=2)
-        mem_indices = np.argmin(distances, axis=1)
-        distances = cdist(array_percentiles, array)
-        mem_indices = np.argmin(distances, axis=1)
-        return array[mem_indices]
 
 
 def calculate_global_components(scenario: str, palmer_method: bool) -> None:

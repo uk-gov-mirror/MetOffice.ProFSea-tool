@@ -2,7 +2,6 @@
 Copyright (c) 2023, Met Office
 All rights reserved.
 """
-import glob
 import pickle
 import os
 from pathlib import Path
@@ -13,9 +12,6 @@ import numpy as np
 from rich.console import Console
 from rich.progress import track
 import xarray as xr
-
-from profsea.config import settings
-from profsea.directories import read_dir
 
 console = Console()
 warnings.filterwarnings("ignore")
@@ -200,8 +196,7 @@ class Spatial:
         :param scenario: emission scenario
         :param percentile: percentiles used for spatial projections
         """
-        file_header = '_'.join([component, self.scenario, "projection", 
-                                f"{settings['projection_end_year']}"])
+        file_header = '_'.join([component, self.scenario, "projection", self.end_year])
 
         # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
         xr_dataArray = xr.DataArray(montecarlo_R, dims=["percentile", "time", "lat", "lon"], 
