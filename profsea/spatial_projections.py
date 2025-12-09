@@ -10,13 +10,11 @@ from pathlib import Path
 import warnings
 
 import dask.array as da
-import iris
 from netCDF4 import Dataset
 import numpy as np
 from rich.console import Console
 from rich.progress import track
 import scipy
-from scipy.interpolate import RegularGridInterpolator
 from scipy.spatial.distance import cdist
 import xarray as xr
 
@@ -119,7 +117,7 @@ def calc_gia_contribution(
                                 coords={"time": np.arange(2006, GIA_series.shape[1] + 2006),
                                         "lat": np.arange(-90, 90) + 0.5, "lon": np.arange(0, 360) + 0.5})
     xr_dataArray.attrs["units"] = "m"
-    xr_dataArray.attrs["long_name"] = f"Regional GIA sea-level projections"
+    xr_dataArray.attrs["long_name"] = "Regional GIA sea-level projections"
     ds = xr_dataArray.to_dataset(name='gia')
 
     ds.attrs["source"] = "ProFSea-Climate v0.1"
@@ -185,8 +183,8 @@ def calc_fingerprint_contributions(
                     ("lon", np.linspace(-180, 180, 720, endpoint=False))
                 ],
                 name="v")
-            target_lat = np.linspace(90, -90, 180)
-            target_lon = np.linspace(-180, 180, 360, endpoint=False)
+            target_lat = np.linspace(90, -90, 180) + 0.5
+            target_lon = np.linspace(-180, 180, 360, endpoint=False) + 0.5
             val = original_da.interp(
                 lat=target_lat, lon=target_lon, method="linear").data
             val = np.roll(val, 180, axis=1)
@@ -213,8 +211,8 @@ def calc_greenland_fingerprint_ar6() -> da.array:
 
     # Interpolate to (180, 360) grid
     fp_vals = fp_ds.fp.interp(
-        lat=np.linspace(-90, 90, 180, endpoint=False), 
-        lon=np.linspace(0, 360, 360, endpoint=False), 
+        lat=np.linspace(-90, 90, 180, endpoint=False) + 0.5, 
+        lon=np.linspace(0, 360, 360, endpoint=False) + 0.5, 
         method="linear").data * 1000  # convert mm to m SLE per m GMSLR
 
     # Flip vertically and roll by 180 degrees
@@ -272,7 +270,7 @@ def calculate_sl_components(
     """  
     # Numbers of ensemble members, samples, years
     nesm, nsmps, nyrs, lats, lons = array_dims
-    nFPs, FPlist = setup_FP_interpolators(components)
+    nFPs, FPlist = load_fingerprints(components)
     resamples = np.random.choice(nesm, nsmps) # Preserve correlations across comps
     rfpi = np.random.randint(nFPs, size=nsmps)
 
@@ -316,28 +314,6 @@ def calculate_sl_components(
 
         # Create the output sea level projections file directory and filename
         save_projections(montecarlo_R, comp, scenario, percentile_regional)
-
-
-def create_FP_interpolator(
-    datadir: str, dfile: str, method: str='linear') -> RegularGridInterpolator:
-    """
-    Generates a scipy Interpolator object from input NetCDF data of
-    gravitational fingerprints (takes inputs of Latitude and Longitude).
-    :param datadir: data directory
-    :param dfile: data filename
-    :param method: interpolation type --> 'linear' or 'nearest'
-    :return: 2D Interpolator object
-    """
-    cube = iris.load_cube(os.path.join(datadir, dfile))
-    lon = cube.coord('longitude').points
-    lat = cube.coord('latitude').points
-
-    # Define linear interpolator object:
-    interp_object = RegularGridInterpolator(
-        (lat, lon), cube.data,
-        method=method, bounds_error=True,
-        fill_value=None)
-    return interp_object
 
 
 def get_projection_info(indir: str, scenario: str) -> tuple:
@@ -429,7 +405,7 @@ def read_gia_estimates() -> tuple:
     return nGIA, GIA_vals
 
 
-def setup_FP_interpolators(components: list) -> tuple:
+def load_fingerprints(components: list) -> tuple:
     """
     Create 2D Interpolator objects for the Slangen, Spada and Klemann
     fingerprints
@@ -445,19 +421,24 @@ def setup_FP_interpolators(components: list) -> tuple:
 
     # Only 1 fingerprint for Landwater
     comp = "landwater"
-    slangen_FPs[comp] = create_FP_interpolator(settings["fingerprints"],
-                                               comp + "_slangen_nomask.nc")
+    slangen_FPs[comp] = xr.load_dataset(
+        settings["fingerprints"],
+        comp + "_slangen_nomask.nc").values
 
-    # Create interpolators for the remaining components. Expansion ('expansion')
-    # is global so no interpolation is needed.
-    components_todo = [c for c in components if c not in ["expansion", "landwater", "greenland"]]
+    # Other FPs have multiple components
+    components_todo = [
+        c for c in components 
+        if c not in ["expansion", "landwater", "greenland"]]
     for comp in components_todo:
-        slangen_FPs[comp] = create_FP_interpolator(settings["fingerprints"],
-                                                   comp + "_slangen_nomask.nc")
-        spada_FPs[comp] = create_FP_interpolator(settings["fingerprints"],
-                                                 comp + "_spada_nomask.nc")
-        klemann_FPs[comp] = create_FP_interpolator(settings["fingerprints"],
-                                                   comp + "_klemann_nomask.nc")
+        slangen_FPs[comp] = xr.load_dataset(
+            settings["fingerprints"],
+            comp + "_slangen_nomask.nc").values
+        spada_FPs[comp] = xr.load_dataset(
+            settings["fingerprints"],
+            comp + "_spada_nomask.nc").values
+        klemann_FPs[comp] = xr.load_dataset(
+            settings["fingerprints"],
+            comp + "_klemann_nomask.nc").values
 
     FPlist = [slangen_FPs, spada_FPs, klemann_FPs]
     nFPs = len(FPlist)
