@@ -75,6 +75,11 @@ def calc_future_sea_level(scenario: str) -> None:
     grid_sample = np.load(grid_path)
     array_dims = [nesm, nesm, nyrs, grid_sample.shape[0], grid_sample.shape[1]]
 
+    console.log(
+        "INFO: This module expects sterodynamic patterns on half-integer grids:\n"
+        "\tlat: (-89.5, ..., 89.5)\n"
+        "\tlon: (-179.5, ..., 179.5)")
+
     # Get random samples of global and regional sea level components
     calculate_sl_components(mcdir, components, scenario, yrs, array_dims)
 
