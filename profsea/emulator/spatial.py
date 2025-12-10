@@ -36,14 +36,18 @@ class Spatial:
         ):
         """
         """
-        if not components_dir and not components:
+        if ((not components_dir and not components) or
+            (components_dir and components)):
             raise ValueError(
                 "Provide either an input directory or "
                 "dictionary with global projection components")
         if components:
             self.n_samples = components["gmslr"].shape[0]  # ens dimension
         else:
-            sample_filepath = next(Path(components_dir).glob("*.npy"))
+            try:
+                sample_filepath = next(Path(components_dir).glob("*.npy"))
+            except StopIteration:
+                raise FileNotFoundError("Nothing found in components_dir")
             sample = np.load(sample_filepath, mmap_mode="r")
             self.n_samples = sample.shape[0]
 
@@ -63,7 +67,12 @@ class Spatial:
         # Get lat/lon sizes
         sample_pattern_filepath = Path(expansion_patterns_dir) \
             / "ACCESS-CM2/zos_regression_ssp245_ACCESS-CM2.npy"
-        sample_pattern = np.load(sample_pattern_filepath, mmap_mode="r")
+        try:
+            sample_pattern = np.load(sample_pattern_filepath, mmap_mode="r")
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                "expansion_patterns_dir expects the " 
+                "patterns' parent directory")
         self.nlat, self.nlon = sample_pattern.shape[0], sample_pattern.shape[1]
 
 
