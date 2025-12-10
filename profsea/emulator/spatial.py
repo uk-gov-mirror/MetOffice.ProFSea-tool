@@ -87,7 +87,9 @@ class Spatial:
                 "expansion_patterns_dir expects the " 
                 "patterns' parent directory")
         self.nlat, self.nlon = sample_pattern.shape[0], sample_pattern.shape[1]
-
+        console.log("INFO: Spatial() expects sterodynamic patterns on half-integer grids:\n"
+                    "\tlat: (-89.5, ..., 89.5)\n"
+                    "\tlon: (-179.5, ..., 179.5)")
         console.log(f"Baseline period = {self.baseline_yrs[0]} to {self.baseline_yrs[1]}")
 
     def _calc_baseline_period(self) -> float:
@@ -289,8 +291,8 @@ class Spatial:
         original_da = xr.DataArray(
             data.data,
             coords=[
-                ("lat", np.linspace(90, -90, data.shape[0])), 
-                ("lon", np.linspace(-180, 180, data.shape[1], endpoint=False))
+                ("lat", data[data.dims[0]].values), 
+                ("lon", data[data.dims[1]].values)
             ],
             name="v")
 
