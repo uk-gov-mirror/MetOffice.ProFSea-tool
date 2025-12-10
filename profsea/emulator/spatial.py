@@ -36,33 +36,46 @@ class Spatial:
         ):
         """
         """
+        # Start off with some error handling
         if ((not components_dir and not components) or
             (components_dir and components)):
             raise ValueError(
                 "Provide either an input directory or "
                 "dictionary with global projection components")
-        if components:
-            self.n_samples = components["gmslr"].shape[0]  # ens dimension
-        else:
-            try:
-                sample_filepath = next(Path(components_dir).glob("*.npy"))
-            except StopIteration:
-                raise FileNotFoundError("Nothing found in components_dir")
-            sample = np.load(sample_filepath, mmap_mode="r")
-            self.n_samples = sample.shape[0]
 
+        if components:
+            if components["gmslr"]: 
+                raise ValueError(
+                    "Remove the GMSLR component from "
+                    "the component dictionary")
+            self.n_samples = components["expansion"].shape[0]  # ens dimension
+            self.components = components
+        else:
+            # Read in the components
+            component_list = [  # currently allowed components
+                "expansion", "antdyn", 
+                "antsmb", "glacier", "greenland"]
+            self.components = {}
+            for comp in component_list:
+                component_path = Path(components_dir) / f"{scenario}_{comp}.npy"
+                self.components[comp] = np.load(component_path, mmap_mode='r')
+  
+        if not output_dir:
+            output_dir = Path.cwd()
+
+        # Assign attributes
         self.scenario = scenario
         self.expansion_patterns_dir = expansion_patterns_dir
         self.fingerprint_dir = fingerprint_dir
         self.gia_dir = gia_dir
         self.components_dir = components_dir
-        self.components = components
         self.end_year = end_year
         self.baseline_yrs = baseline_yrs
         self.output_percentiles = output_percentiles
         self.output_dir = output_dir
         self.start_year = 2006
         self.n_years = self.end_year - self.start_year
+        self.n_samples = self.components["expansion"].shape[0]
 
         # Get lat/lon sizes
         sample_pattern_filepath = Path(expansion_patterns_dir) \
@@ -74,7 +87,6 @@ class Spatial:
                 "expansion_patterns_dir expects the " 
                 "patterns' parent directory")
         self.nlat, self.nlon = sample_pattern.shape[0], sample_pattern.shape[1]
-
 
         console.log(f"Baseline period = {self.baseline_yrs[0]} to {self.baseline_yrs[1]}")
 
@@ -111,9 +123,6 @@ class Spatial:
         GIA_vals = da.from_array(GIA_vals)
         GIA_series = GIA_T[:, :, None, None] * GIA_vals[rgiai, None, :, :]
 
-        file_header = '_'.join(
-            ['gia', self.scenario, "projection", self.end_year])
-
         # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
         xr_dataArray = xr.DataArray(
             GIA_series, 
@@ -129,6 +138,7 @@ class Spatial:
 
         ds.attrs["source"] = "ProFSea-Climate v0.1"
 
+        file_header = f"gia_{self.scenario}_projection_{self.end_year}"
         R_file = '_'.join([file_header, 'regional']) + '.nc'
         encoding = {'gia': {"zlib": True, "complevel": 5, "dtype": "float32"}}
         ds.to_netcdf(os.path.join(self.output_dir, R_file), encoding=encoding, compute=True)
@@ -151,24 +161,22 @@ class Spatial:
         """  
         console.log(f"Running with {self.n_samples} ensemble members")
 
-        resamples = np.random.choice(self.n_samples, size=self.n_samples) # Preserve correlations across comps
+        resamples = np.random.choice(self.n_samples, size=self.n_samples)  # Preserve correlations across comps
 
         # Calculate GIA contribution and save it out
         self._calc_gia_contribution()
         nFPs, FPlist = self._load_fingerprints()
         rfpi = np.random.randint(nFPs, size=self.n_samples)
-        for comp in track(self.components.keys(), description="Calculating components..."):
+        for comp in track(list(self.components.keys()), description="Calculating components..."):
             montecarlo_R = da.zeros(
                 (self.n_samples, self.n_years, self.nlat, self.nlon),
-                dtype=np.float32) # (FPs applied) + GIA
+                dtype=np.float32)  # (FPs applied) + GIA
             montecarlo_G = da.zeros(
                 (self.n_samples, self.n_years, self.nlat, self.nlon),
-                dtype=np.float32) # (no FPs applied)
+                dtype=np.float32)  # (no FPs applied)
 
             # Load global projections in for the component
-            if self.components_dir:
-                component_path = Path(self.components_dir) / f"{self.scenario}_{comp}.npy"
-                mc_timeseries = np.load(component_path, mmap_mode='r')
+            mc_timeseries = self.components[comp]
             sampled_mc = mc_timeseries[resamples, :self.n_years]
             montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None], chunks="auto")
 
@@ -187,7 +195,7 @@ class Spatial:
                 montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * greenland_fp[None, None, :, :]
 
             else:
-                fp_vals = self._calc_fingerprint_contributions(FPlist)
+                fp_vals = self._calc_fingerprint_contributions(FPlist, comp)
                 montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * fp_vals[rfpi][:, None, :, :]
                 del fp_vals
 
@@ -205,8 +213,6 @@ class Spatial:
         :param scenario: emission scenario
         :param percentile: percentiles used for spatial projections
         """
-        file_header = '_'.join([component, self.scenario, "projection", self.end_year])
-
         # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
         xr_dataArray = xr.DataArray(montecarlo_R, dims=["percentile", "time", "lat", "lon"], 
                                     coords={"percentile": self.output_percentiles, 
@@ -218,6 +224,7 @@ class Spatial:
 
         ds.attrs["source"] = "ProFSea-Climate v0.1"
 
+        file_header = f"{component}_{self.scenario}_projection_{self.end_year}"
         R_file = '_'.join([file_header, 'regional']) + '.nc'
         encoding = {component: {"zlib": True, "complevel": 5, "dtype": "float32"}}
         ds.to_netcdf(os.path.join(self.output_dir, R_file), encoding=encoding, compute=True)
@@ -301,7 +308,7 @@ class Spatial:
         for FP_dict in FPlist:
             # Interpolate values to target lat/lon
             val = FP_dict[comp]
-            val = self._interpolate(val, self.nlat, self.nlon)
+            val = self._interpolate(val)
             fp_vals.append(val)
 
         fp_vals = da.stack(fp_vals, axis=0)
@@ -340,7 +347,7 @@ class Spatial:
         # Read in the sea level regressions
         slope_files = list(Path(
             self.expansion_patterns_dir
-        ).glob("/*/zos_regression_ssp585_*.npy"))
+        ).glob("*/zos_regression_ssp585_*.npy"))
 
         def _load_one_slope(f):
             return np.load(f, mmap_mode='r')
@@ -374,7 +381,7 @@ class Spatial:
 
         # Other FPs have multiple components
         components_todo = [
-            c for c in self.components.keys() 
+            c for c in list(self.components.keys()) 
             if c not in ["expansion", "landwater", "greenland"]]
         for comp in components_todo:
             slangen_path = Path(self.fingerprint_dir) / f"{comp}_slangen_nomask.nc"
