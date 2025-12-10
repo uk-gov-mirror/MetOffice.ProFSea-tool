@@ -60,7 +60,7 @@ def calc_future_sea_level(scenario: str) -> None:
 
     # Select dimensions from sample file, [time, realisation]
     sample = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                                  'data', 'gmslr', f'{scenario}_expansion.npy'))
+                                  settings['emulator_settings']['gmslr_output_dir'], f'{scenario}_expansion.npy'))
     
     nesm = sample.shape[0] # also number of samples to make
     nyrs = sample.shape[1]
@@ -73,6 +73,11 @@ def calc_future_sea_level(scenario: str) -> None:
         "ACCESS-CM2/zos_regression_ssp245_ACCESS-CM2.npy")
     grid_sample = np.load(grid_path)
     array_dims = [nesm, nesm, nyrs, grid_sample.shape[0], grid_sample.shape[1]]
+
+    console.log(
+        "INFO: This module expects sterodynamic patterns on half-integer grids:\n"
+        "\tlat: (-89.5, ..., 89.5)\n"
+        "\tlon: (-179.5, ..., 179.5)")
 
     # Get random samples of global and regional sea level components
     calculate_sl_components(mcdir, components, scenario, yrs, array_dims)
@@ -109,7 +114,8 @@ def calc_gia_contribution(
 
     file_header = '_'.join(['gia', scenario, "projection", 
                     f"{settings['projection_end_year']}"])
-    sealev_ddir = read_dir()[4]
+    sealev_ddir = os.path.join(settings["baseoutdir"],settings["experiment_name"],
+                               settings['emulator_settings']['spatial_output_dir'])
 
     # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
     xr_dataArray = xr.DataArray(
@@ -175,8 +181,8 @@ def interpolate(data: da.array, lats: int, lons: int) -> np.ndarray:
     original_da = xr.DataArray(
         data.data,
         coords=[
-            ("lat", np.linspace(90, -90, data.shape[0])), 
-            ("lon", np.linspace(-180, 180, data.shape[1], endpoint=False))
+            ("lat", data[data.dims[0]].values), 
+            ("lon", data[data.dims[1]].values)
         ],
         name="v")
 
@@ -236,7 +242,8 @@ def save_projections(
     :param scenario: emission scenario
     :param percentile: percentiles used for spatial projections
     """
-    sealev_ddir = read_dir()[4]
+    sealev_ddir = os.path.join(settings["baseoutdir"],settings["experiment_name"],
+                               settings['emulator_settings']['spatial_output_dir'])
     file_header = '_'.join([component, scenario, "projection", 
                             f"{settings['projection_end_year']}"])
 
@@ -291,7 +298,7 @@ def calculate_sl_components(
         # Load global projections in for the component
         #mc_timeseries = np.load(os.path.join(mcdir, f'{scenario}_{comp}.npy'))
         mc_timeseries = np.load(os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                                             'data','gmslr',f'{scenario}_{comp}.npy'), mmap_mode='r')
+                                             settings['emulator_settings']['gmslr_output_dir'],f'{scenario}_{comp}.npy'))
         sampled_mc = mc_timeseries[resamples, :nyrs]
         montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None], chunks="auto")
 
@@ -508,7 +515,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
     console.log('Saving global components...')
     gmslr.save_components(
         os.path.join(settings["baseoutdir"],settings["experiment_name"],
-                     'data', 'gmslr'),
+                     settings['emulator_settings']['gmslr_output_dir']),
         scenario)
 
 
@@ -536,11 +543,14 @@ def main():
         os.path.join(
             settings["baseoutdir"],
             settings["experiment_name"],
-            'data', 'gmslr')
+            settings['emulator_settings']['gmslr_output_dir'])
     ).mkdir(parents=True, exist_ok=True)
 
     Path(
-        read_dir()[4]
+        os.path.join(
+            settings["baseoutdir"],
+            settings["experiment_name"],
+            settings['emulator_settings']['spatial_output_dir'])
     ).mkdir(parents=True, exist_ok=True)
 
     # Extract site data from station list (e.g. tide gauge location) or
