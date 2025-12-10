@@ -176,8 +176,8 @@ def interpolate(data: da.array, lats: int, lons: int) -> np.ndarray:
     original_da = xr.DataArray(
         data.data,
         coords=[
-            ("lat", np.linspace(90, -90, data.shape[0])), 
-            ("lon", np.linspace(-180, 180, data.shape[1], endpoint=False))
+            ("lat", data[data.dims[0]].values), 
+            ("lon", data[data.dims[1]].values)
         ],
         name="v")
 
