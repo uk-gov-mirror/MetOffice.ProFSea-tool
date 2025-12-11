@@ -19,7 +19,7 @@ import xarray as xr
 from profsea.config import settings
 from profsea.directories import read_dir
 from profsea.emulator import Global
-from profsea.utils import sample_members_2D
+from profsea.utils import sample_members_2D, interpolate
 from profsea.slr_pkg import choose_montecarlo_dir
 
 console = Console()
@@ -173,26 +173,6 @@ def calc_landwater_contribution(data: dict, lats: int, lons: int) -> da.array:
     landwater_vals = interpolate(data, lats, lons)
     landwater_vals = da.roll(landwater_vals, 180, axis=1)
     return landwater_vals
-
-
-def interpolate(data: da.array, lats: int, lons: int) -> np.ndarray:
-    """
-    """
-    original_da = xr.DataArray(
-        data.data,
-        coords=[
-            ("lat", data[data.dims[0]].values), 
-            ("lon", data[data.dims[1]].values)
-        ],
-        name="v")
-
-    target_lat = np.linspace(90, -90, lats) + 0.5
-    target_lon = np.linspace(-180, 180, lons, endpoint=False) + 0.5
-    data_interp = original_da.interp(
-        lat=target_lat, lon=target_lon, method="linear").data
-
-    data_interp = da.roll(data_interp, 180, axis=1)
-    return data_interp
 
 
 def calc_fingerprint_contributions(

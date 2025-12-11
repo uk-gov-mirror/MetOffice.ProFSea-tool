@@ -13,6 +13,8 @@ from rich.console import Console
 from rich.progress import track
 import xarray as xr
 
+from profsea.utils import interpolate
+
 console = Console()
 warnings.filterwarnings("ignore")
 
@@ -281,28 +283,9 @@ class Spatial:
         :param interpolator: dictionary of interpolator objects
         :return: numpy array of landwater values
         """
-        landwater_vals = self._interpolate(data, self.nlat, self.nlon)
+        landwater_vals = interpolate(data, self.nlat, self.nlon)
         landwater_vals = da.roll(landwater_vals, 180, axis=1)
         return landwater_vals
-
-    def _interpolate(self, data: da.array) -> np.ndarray:
-        """
-        """
-        original_da = xr.DataArray(
-            data.data,
-            coords=[
-                ("lat", data[data.dims[0]].values), 
-                ("lon", data[data.dims[1]].values)
-            ],
-            name="v")
-
-        target_lat = np.linspace(90, -90, self.nlat) + 0.5
-        target_lon = np.linspace(-180, 180, self.nlon, endpoint=False) + 0.5
-        data_interp = original_da.interp(
-            lat=target_lat, lon=target_lon, method="linear").data
-
-        data_interp = da.roll(data_interp, 180, axis=1)
-        return data_interp
 
     def _calc_fingerprint_contributions(self, FPlist: list, comp: str) -> da.array:
         # Initiate an empty list for fingerprint values
@@ -310,7 +293,7 @@ class Spatial:
         for FP_dict in FPlist:
             # Interpolate values to target lat/lon
             val = FP_dict[comp]
-            val = self._interpolate(val)
+            val = interpolate(val)
             fp_vals.append(val)
 
         fp_vals = da.stack(fp_vals, axis=0)
