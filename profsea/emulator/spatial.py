@@ -18,8 +18,6 @@ from profsea.utils import interpolate
 console = Console()
 warnings.filterwarnings("ignore")
 
-# TODO change numpy.random to random generators
-
 class Spatial:
 
     def __init__(
@@ -34,7 +32,8 @@ class Spatial:
             baseline_yrs: tuple=(1986, 2005),
             output_percentiles: list|np.ndarray=[5, 17, 50, 83, 95],
             output_dir: str|Path=None,
-            cmip5_patterns: bool=False
+            cmip5_patterns: bool=False,
+            random_seed: int=None
         ):
         """
         """
@@ -78,6 +77,7 @@ class Spatial:
         self.start_year = 2006
         self.n_years = self.end_year - self.start_year
         self.n_samples = self.components["expansion"].shape[0]
+        self.rng = np.random.default_rng(seed=random_seed)
 
         # Get lat/lon sizes
         sample_pattern_filepath = Path(expansion_patterns_dir) \
@@ -121,7 +121,7 @@ class Spatial:
         GIA_unit_series = np.ones([num_percs, self.n_years]) * unit_series
 
         # rgiai is an array of random GIA indices the size of the sample years
-        rgiai = np.random.randint(nGIA, size=num_percs)
+        rgiai = self.rng.integers(nGIA, size=num_percs)
 
         GIA_T = da.from_array(GIA_unit_series)
         GIA_vals = da.from_array(GIA_vals)
@@ -165,12 +165,12 @@ class Spatial:
         """  
         console.log(f"Running with {self.n_samples} ensemble members")
 
-        resamples = np.random.choice(self.n_samples, size=self.n_samples)  # Preserve correlations across comps
+        resamples = self.rng.choice(self.n_samples, size=self.n_samples)  # Preserve correlations across comps
 
         # Calculate GIA contribution and save it out
         self._calc_gia_contribution()
         nFPs, FPlist = self._load_fingerprints()
-        rfpi = np.random.randint(nFPs, size=self.n_samples)
+        rfpi = self.rng.integers(nFPs, size=self.n_samples)
         for comp in track(list(self.components.keys()), description="Calculating components..."):
             montecarlo_R = da.zeros(
                 (self.n_samples, self.n_years, self.nlat, self.nlon),
@@ -272,7 +272,7 @@ class Spatial:
         coeffs = self._load_CMIP6_slopes()
         coeffs = da.roll(coeffs, 180, axis=2)
 
-        rand_samples = np.random.choice(
+        rand_samples = self.rng.choice(
             coeffs.shape[0], size=self.n_samples, replace=True)               
         rand_coeffs = coeffs[rand_samples, :, :]
         return rand_coeffs
