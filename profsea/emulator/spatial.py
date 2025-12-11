@@ -293,7 +293,7 @@ class Spatial:
         for FP_dict in FPlist:
             # Interpolate values to target lat/lon
             val = FP_dict[comp]
-            val = interpolate(val)
+            val = interpolate(val, self.nlat, self.nlon)
             fp_vals.append(val)
 
         fp_vals = da.stack(fp_vals, axis=0)
