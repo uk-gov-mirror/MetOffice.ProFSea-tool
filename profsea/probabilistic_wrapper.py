@@ -14,6 +14,7 @@ from scipy.spatial.distance import cdist
 import xarray as xr
 
 from profsea.emulator import GMSLREmulator
+from profsea.utils import sample_members_2D
 
 worker_tas = None
 worker_ohc = None
@@ -178,15 +179,6 @@ def plot_samples(tas: np.ndarray, ohc: np.ndarray) -> None:
 
     plt.show()
     plt.close()
-
-
-def sample_members_2D(array: np.ndarray, percentiles: list|np.ndarray) -> np.ndarray:
-    """Sample real ensemble members from a 2D numpy array."""
-    # Caculate statistical timeseries, then match with closest real timeseries 
-    array_percentiles = np.percentile(array, percentiles, axis=0)
-    distances = cdist(array_percentiles, array)
-    mem_indices = np.argmin(distances, axis=1)
-    return array[mem_indices]
 
 
 def process_global_ensemble(components: list, percentiles: list, scenario: str) -> None:

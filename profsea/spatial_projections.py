@@ -14,13 +14,12 @@ from netCDF4 import Dataset
 import numpy as np
 from rich.console import Console
 from rich.progress import track
-import scipy
-from scipy.spatial.distance import cdist
 import xarray as xr
 
 from profsea.config import settings
 from profsea.directories import read_dir
-from profsea.emulator import GMSLREmulator
+from profsea.emulator import Global
+from profsea.utils import sample_members_2D, interpolate
 from profsea.slr_pkg import choose_montecarlo_dir
 
 console = Console()
@@ -174,26 +173,6 @@ def calc_landwater_contribution(data: dict, lats: int, lons: int) -> da.array:
     landwater_vals = interpolate(data, lats, lons)
     landwater_vals = da.roll(landwater_vals, 180, axis=1)
     return landwater_vals
-
-
-def interpolate(data: da.array, lats: int, lons: int) -> np.ndarray:
-    """
-    """
-    original_da = xr.DataArray(
-        data.data,
-        coords=[
-            ("lat", data[data.dims[0]].values), 
-            ("lon", data[data.dims[1]].values)
-        ],
-        name="v")
-
-    target_lat = np.linspace(90, -90, lats) + 0.5
-    target_lon = np.linspace(-180, 180, lons, endpoint=False) + 0.5
-    data_interp = original_da.interp(
-        lat=target_lat, lon=target_lon, method="linear").data
-
-    data_interp = da.roll(data_interp, 180, axis=1)
-    return data_interp
 
 
 def calc_fingerprint_contributions(
@@ -464,20 +443,6 @@ def load_fingerprints(components: list) -> tuple:
     return nFPs, FPlist
 
 
-def sample_members_2D(array: np.ndarray, percentile_seq: list|np.ndarray) -> np.ndarray:
-        """Sample real ensemble members from a 2D numpy array."""
-        # Caculate statistical timeseries, then match with closest real timeseries 
-        array_percentiles = np.percentile(array, percentile_seq, axis=0)
-        array_perc_diffs = array[None, :, :] - array_percentiles[:, None, :]
-
-        # Calculate distances between statistical percentiles and real members
-        distances = scipy.linalg.norm(array_perc_diffs, axis=2)
-        mem_indices = np.argmin(distances, axis=1)
-        distances = cdist(array_percentiles, array)
-        mem_indices = np.argmin(distances, axis=1)
-        return array[mem_indices]
-
-
 def calculate_global_components(scenario: str, palmer_method: bool) -> None:
     """
     Calculate the global contributions for each of the sea-level components
@@ -516,7 +481,7 @@ def calculate_global_components(scenario: str, palmer_method: bool) -> None:
     T_change = sample_members_2D(T_change, percentiles)
     OHC_change = sample_members_2D(OHC_change, percentiles)
 
-    gmslr = GMSLREmulator(
+    gmslr = Global(
         T_change,
         OHC_change,
         scenario,
