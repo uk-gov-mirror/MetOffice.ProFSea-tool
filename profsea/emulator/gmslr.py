@@ -292,7 +292,7 @@ class Global:
         # TODO Parallelise this section as it's a bit slow
         if self.output_percentiles is not None:
             console.log(f"Sampling {len(self.output_percentiles)} members per component...")
-            self.gmslr = sample_members_2D(self.gmslr)
+            self.gmslr = sample_members_2D(self.gmslr, self.output_percentiles)
             self.expansion = sample_members_2D(self.expansion, self.output_percentiles)
             self.antnet = sample_members_2D(self.antnet, self.output_percentiles)
             self.antdyn = sample_members_2D(self.antdyn, self.output_percentiles)
