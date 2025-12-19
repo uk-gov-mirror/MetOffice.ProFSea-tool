@@ -132,7 +132,7 @@ class Global:
             scenario: str,
             end_yr: int,
             seed: int=1234,
-            nt: int=450,
+            nt: int=100,
             nm: int=1000,
             tcv: float=1.0,
             glaciermip: bool|int=2,
@@ -186,13 +186,14 @@ class Global:
         # Conversion factor for Gt to m SLE
         self.mSLEoGt = 1e12 / 3.61e14 * 1e-3
 
+        if input_ensemble:
+            self.nt = self.T_change.shape[0]
+
         # Sensitivity of thermosteric SLR to ocean heat content change
         # From Turner et al. (2023)
         self.exp_efficiency = np.random.normal(
-            loc=0.113, scale=0.013, size=OHC_change.shape[0]) * 1e-24 # m/YJ
+            loc=0.113, scale=0.013, size=self.nt)[:, None] * 1e-24 # m/YJ
 
-        if input_ensemble:
-            self.nt = self.T_change.shape[0]
 
         if self.scenario not in ['rcp26', 'rcp45', 'rcp85', 
             'ssp126', 'ssp245', 'ssp585'] and self.cum_emissions_total is None:
@@ -389,28 +390,19 @@ class Global:
             if self.OHC_change.shape[1] != self.nyr: 
                 self.OHC_change = self.OHC_change.T
                 
-            therm_ens = self.OHC_change * self.exp_efficiency[:, None]
-            T_int_ens = np.cumsum(self.T_change, axis=1)
-            T_int_med = np.percentile(T_int_ens, 50, axis=0) # using median here instead of mean... CHECK THIS
-
-            return self.T_change, therm_ens, T_int_ens, T_int_med
-        
-        if len(self.T_change.shape) > 1:
             T_med = np.percentile(self.T_change, 50, axis=0)
             T_std = np.std(self.T_change, axis=0)
 
             therm_med = np.percentile(self.OHC_change, 50, axis=0) * self.exp_efficiency
             therm_std = np.std(self.OHC_change * self.exp_efficiency, axis=0)
+
         else:
             if self.T_percentile_95 is not None:
                 T_med = self.T_change
-                therm_med = self.OHC_change 
+                therm_med = self.OHC_change * self.exp_efficiency 
                 
                 T_std = (self.T_percentile_95 - self.T_change) / 1.645
-                # therm_std = (self.OHC_percentile_95 - self.OHC_change) * self.exp_efficiency / 1.645
-                therm_std = (self.OHC_percentile_95 - self.OHC_change) / 1.645
-                self.T_std = T_std
-                self.therm_std = therm_std
+                therm_std = (self.OHC_percentile_95 - self.OHC_change) * self.exp_efficiency / 1.645
             
             else:
                 raise ValueError(
