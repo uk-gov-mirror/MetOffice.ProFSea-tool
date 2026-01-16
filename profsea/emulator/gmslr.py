@@ -240,13 +240,6 @@ class Global:
         """
         # Create directory if it doesn't exist
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        for name, component in self.get_components().items():
-            np.save(
-                os.path.join(
-                    output_dir, 
-                    f'{scenario_name}_{name}.npy'), 
-                component
-            )
 
         # Save data in netcdf format (store all components in an xarray dataset)
         # Assumes first dimension is percentile, but can be more general (percentile/ensemble)

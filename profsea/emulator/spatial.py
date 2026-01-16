@@ -19,6 +19,31 @@ console = Console()
 warnings.filterwarnings("ignore")
 
 class Spatial:
+    """ Spatial sea level rise component emulator.
+
+    Parameters
+    ----------
+    scenario: str
+        Name of the scenario.
+    expansion_patterns_dir: str
+        Direcotry path of regression patterns of thermal expansion component from cmip models.
+    fingerprint_dir: str
+        Direcotry path of GRD (Gravitational, Rotational, Deformational) fingerprint data
+    gia_dir: str
+        Direcotry path of GIA (Glacial Isostatic Adjustment) data
+    components_dir: str
+        Path to global sea-level rise components (output of ProFSea's gmslr module)
+    component_list: list
+        Namelist of components for spatial projections
+    end_year: int
+        End year of the projections.
+    output_percentiles: int
+        List of percentiles for output
+    output_dir: str
+        Path to output directory for saving spatial projections.
+    random_seed: bool
+        Seed for numpy.random.
+    """
 
     def __init__(
             self, 
@@ -27,7 +52,7 @@ class Spatial:
             fingerprint_dir: str|Path,
             gia_dir: str|Path,
             components_dir: str|Path=None, 
-            components: dict=None, 
+            component_list: list=None, 
             end_year: int=2301, 
             baseline_yrs: tuple=(1986, 2005),
             output_percentiles: list|np.ndarray=[5, 17, 50, 83, 95],
@@ -35,31 +60,23 @@ class Spatial:
             cmip5_patterns: bool=False,
             random_seed: int=None
         ):
-        """
-        """
-        # Start off with some error handling
-        if ((not components_dir and not components) or
-            (components_dir and components)):
-            raise ValueError(
-                "Provide either an input directory or "
-                "dictionary with global projection components")
 
-        if components:
-            if components["gmslr"]: 
-                raise ValueError(
-                    "Remove the GMSLR component from "
-                    "the component dictionary")
-            self.n_samples = components["expansion"].shape[0]  # ens dimension
-            self.components = components
-        else:
-            # Read in the components
-            component_list = [  # currently allowed components
-                "expansion", "antdyn", 
-                "antsmb", "glacier", "greenland"]
-            self.components = {}
-            for comp in component_list:
-                component_path = Path(components_dir) / f"{scenario}_{comp}.npy"
-                self.components[comp] = np.load(component_path, mmap_mode='r')
+        # Start off with some error handling
+        if not components_dir:
+            raise ValueError(
+                "Provide an input directory")
+
+        if not component_list:
+            raise ValueError(
+                "Provide namelist of global projection components. "
+                "Currently allowed components are expansion, antdyn, "
+                "antsmb, glacier, greenland and landwater")
+
+        self.components = {}
+        component_path = Path(components_dir) / f"{scenario}_global.nc"
+        ds_component = xr.load_dataset(component_path)
+        for comp in component_list:
+            self.components[comp] = ds_component[comp].data
   
         if not output_dir:
             output_dir = Path.cwd()
@@ -284,7 +301,7 @@ class Spatial:
         :return: numpy array of landwater values
         """
         landwater_vals = interpolate(data, self.nlat, self.nlon)
-        landwater_vals = da.roll(landwater_vals, 180, axis=1)
+        landwater_vals = da.roll(landwater_vals, 180, axis=1) # change lons from (-180,180) to (0,360)
         return landwater_vals
 
     def _calc_fingerprint_contributions(self, FPlist: list, comp: str) -> da.array:
@@ -294,6 +311,7 @@ class Spatial:
             # Interpolate values to target lat/lon
             val = FP_dict[comp]
             val = interpolate(val, self.nlat, self.nlon)
+            val = da.roll(val, 180, axis=1) # change lons from (-180,180) to (0,360)
             fp_vals.append(val)
 
         fp_vals = da.stack(fp_vals, axis=0)
@@ -317,9 +335,6 @@ class Spatial:
             lon=np.linspace(0, 360, self.nlon, endpoint=False) + 0.5, 
             method="linear").data * 1000  # convert mm to m SLE per m GMSLR
 
-        # Flip vertically and roll by 180 degrees
-        fp_vals = da.flip(fp_vals)
-        fp_vals = da.roll(fp_vals, 180, axis=1)
         return fp_vals
 
     def _load_CMIP6_slopes(self) -> np.ndarray:
