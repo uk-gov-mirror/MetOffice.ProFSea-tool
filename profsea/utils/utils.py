@@ -23,10 +23,9 @@ def interpolate(data: da.array, lats: int, lons: int) -> np.ndarray:
         ],
         name="v")
 
-    target_lat = np.linspace(90, -90, lats) + 0.5
+    target_lat = np.linspace(-90, 90, lats, endpoint=False) + 0.5
     target_lon = np.linspace(-180, 180, lons, endpoint=False) + 0.5
     data_interp = original_da.interp(
         lat=target_lat, lon=target_lon, method="linear").data
 
-    data_interp = da.roll(data_interp, 180, axis=1)
     return data_interp
