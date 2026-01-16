@@ -33,7 +33,7 @@ class Spatial:
         Direcotry path of GIA (Glacial Isostatic Adjustment) data
     components_dir: str
         Path to global sea-level rise components (output of ProFSea's gmslr module)
-    component_list: str
+    component_list: list
         Namelist of components for spatial projections
     end_year: int
         End year of the projections.
@@ -52,7 +52,7 @@ class Spatial:
             fingerprint_dir: str|Path,
             gia_dir: str|Path,
             components_dir: str|Path=None, 
-            component_list: dict=None, 
+            component_list: list=None, 
             end_year: int=2301, 
             baseline_yrs: tuple=(1986, 2005),
             output_percentiles: list|np.ndarray=[5, 17, 50, 83, 95],
