@@ -10,10 +10,9 @@ import numpy as np
 import pandas as pd
 from rich_argparse import RichHelpFormatter
 from rich.progress import Progress
-from scipy.spatial.distance import cdist
 import xarray as xr
 
-from profsea.emulator import GMSLREmulator
+from profsea.emulator import Global
 from profsea.utils import sample_members_2D
 
 worker_tas = None
@@ -150,7 +149,7 @@ def simulation_task(random_idx):
         results[scenario] = {}
 
     for idx, scenario in enumerate(worker_scenarios):
-        emulator = GMSLREmulator(
+        emulator = Global(
             np.expand_dims(tas_sampled[:, idx], axis=0),
             np.expand_dims(ohc_sampled[:, idx], axis=0),
             scenario,
@@ -345,7 +344,7 @@ def main(args):
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_NEW_AIS_RATE.nc")
+    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_AIS_JAN_pen.nc")
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
@@ -368,7 +367,7 @@ def main(args):
     sampled_tas = np.asarray(sampled_tas) # shape (nens, time, nscen)
     sampled_ohc = np.asarray(sampled_ohc)
 
-    plot_samples(sampled_tas[:, :, -1], sampled_ohc[:, :, -1])
+    plot_samples(sampled_tas[:, :, -2], sampled_ohc[:, :, -2])
 
 
 if __name__ == "__main__":

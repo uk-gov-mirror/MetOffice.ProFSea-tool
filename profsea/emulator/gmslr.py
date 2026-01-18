@@ -21,6 +21,7 @@ from scipy.stats import norm, truncnorm
 import xarray as xr
 
 from profsea.utils import sample_members_2D
+from .antarctica import AntarcticaISMIP6
 
 console = Console()
 
@@ -268,7 +269,14 @@ class Global:
         else:
             self.run_serial_projections(T_int_med, T_int_ens, T_ens, fraction)
         
-        self.antnet = self.antsmb + self.antdyn
+        # self.antnet = self.antsmb + self.antdyn
+        wa = Antarctica("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/wa_params_JAN.nc")
+        ea = Antarctica("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/ea_params_JAN.nc")
+        pen = Antarctica("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/pen_params_JAN.nc")
+        self.antnet = wa.predict(T_ens.squeeze(), T_int_ens.squeeze(), display_progress=False) + ea.predict(T_ens.squeeze(), T_int_ens.squeeze(), display_progress=False) + pen.predict(T_ens.squeeze(), T_int_ens.squeeze(), display_progress=False)
+        ais_rng = np.random.default_rng()
+        random_ais_idx = ais_rng.integers(low=0, high=43)
+        self.antnet = self.antnet[random_ais_idx, :, :]
         self.gmslr = self.glacier + self.greenland_ar6 + self.antnet + self.landwater + self.expansion
 
         rng = np.random.default_rng()
