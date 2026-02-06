@@ -3,9 +3,9 @@ channels:
   - conda-forge
 dependencies:
   - numpy
-  - pandas
+  - pandas<=2.3.1
   - python=3.13.5
-  - scipy
+  - scipy<=1.16.1
   - pyyaml
   - netcdf4
   - matplotlib
