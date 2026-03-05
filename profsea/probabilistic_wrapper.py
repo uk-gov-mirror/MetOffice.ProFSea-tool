@@ -60,7 +60,6 @@ def index_df(df: pd.DataFrame, baseline_start: int, baseline_end: int) -> pd.Dat
     mask_final = (years_final >= 2006) & (years_final <= 2300)
     
     df_final = df_anom.loc[:, mask_final].reset_index()
-    
     return df_final
 
 
@@ -88,7 +87,6 @@ def df_to_arr(df, scenario_order):
 
     array = np.stack(array, axis=0)
     array = array.transpose(2, 0, 1)  # (n_scenarios, n_members, n_time)
-    
     return array
 
 
@@ -116,21 +114,22 @@ def load_magicc_forcing(
 
 
 def load_fair_forcing(
-        input_path: str, baseline_start: int, baseline_end: int) -> tuple[np.ndarray]:
+        input_path: str, scenarios: list,
+        baseline_start: int, baseline_end: int) -> tuple[np.ndarray]:
     tas_path = Path(input_path) / "tas.nc"
     ohc_path = Path(input_path) / "ohc.nc"
 
     tas = xr.load_dataarray(tas_path)
-    ohc= xr.laod_dataarray(ohc_path)
+    ohc= xr.load_dataarray(ohc_path)
 
-    tas_baseline = tas.loc[dict(layer=0, timebounds=np.arange(baseline_start, baseline_end+1))].mean()
-    ohc_baseline = ohc.loc[dict(timebounds=np.arange(baseline_start, baseline_end+1))].mean()
+    tas_baseline = tas.loc[dict(timebounds=np.arange(baseline_start, baseline_end+1))].mean("timebounds")
+    ohc_baseline = ohc.loc[dict(timebounds=np.arange(baseline_start, baseline_end+1))].mean(["timebounds"])
 
-    tas = tas.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline  # shape (294, 7, 841)
+    tas = tas.loc[dict(timebounds=np.arange(2006, 2301))] - tas_baseline  # shape (294, 7, 841)
     ohc = ohc.loc[dict(timebounds=np.arange(2006, 2301))] - ohc_baseline
 
-
-
+    tas = tas.sel(scenario=scenarios).transpose("scenario", "config", "timebounds")
+    ohc = ohc.sel(scenario=scenarios).transpose("scenario", "config", "timebounds")
     return tas.values, ohc.values
 
 
@@ -161,33 +160,32 @@ def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[n
     tas_baseline = f.temperature.loc[dict(layer=0, timebounds=np.arange(baseline_start, baseline_end+1))].mean()
     ohc_baseline = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(baseline_start, baseline_end+1))].mean()
 
-    tas = f.temperature.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline
+    tas = f.temperature.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline  # shape (294, 7, 841)
     ohc = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(2006, 2301))] - ohc_baseline
-
-    print(tas.values.shape)
     return tas.values, ohc.values
 
 
 def simulation_task(random_idx: int):
     """Runs the emulator for a single ensemble member across all scenarios."""
     # Access data from global scope (initialized via init_worker)
-    tas_sampled = worker_tas[:, :, random_idx]
-    ohc_sampled = worker_ohc[:, :, random_idx]
+    tas_sampled = worker_tas[:, random_idx, :]
+    ohc_sampled = worker_ohc[:, random_idx, :]
     results = {scenario: {} for scenario in worker_scenarios}
 
     for idx, scenario in enumerate(worker_scenarios):
         worker_emulator.project(
             scenario,
-            np.expand_dims(tas_sampled[:, idx], axis=0),
-            np.expand_dims(ohc_sampled[:, idx], axis=0),
-            cum_emissions_total=worker_emissions[scenario]
+            np.expand_dims(tas_sampled[idx, :], axis=0),
+            np.expand_dims(ohc_sampled[idx, :], axis=0),
         )
 
         results[scenario]["gmslr"] = worker_emulator.gmslr
         results[scenario]["expansion"] = worker_emulator.expansion
-        results[scenario]["antarctica"] = worker_emulator.antnet
+        results[scenario]["antarctica"] = worker_emulator.antarctica
+        results[scenario]["wais"] = worker_emulator.wais
+        results[scenario]["eais"] = worker_emulator.eais
         results[scenario]["greenland"] = worker_emulator.greenland_ar6
-        results[scenario]["glaciers"] = worker_emulator.glacier
+        results[scenario]["glacier"] = worker_emulator.glacier
         results[scenario]["landwater"] = worker_emulator.landwater
     return results, random_idx
 
@@ -272,12 +270,20 @@ def plot_component(
         ax: plt.Axes, component_dict: dict, component: str, 
         scenarios: list, plot_legend: bool=False) -> None:
     time = np.arange(2006, 2301)
+    # ssp_colours = {
+    #     "ssp119": tuple(np.array([0, 173, 207]) / 255),
+    #     "ssp126": tuple(np.array([23, 60, 102]) / 255),
+    #     "ssp245": tuple(np.array([247, 148, 32]) / 255),
+    #     "ssp370": tuple(np.array([231, 29, 37]) / 255),
+    #     "ssp534-over": tuple(np.array([0, 79, 0]) / 255),
+    #     "ssp585": tuple(np.array([149, 27, 30]) / 255)
+    # }
     ssp_colours = {
-        "ssp119": tuple(np.array([0, 173, 207]) / 255),
+        "RESCUE-Tier1-Extension-CB1700_2110_2.0": tuple(np.array([0, 173, 207]) / 255),
         "ssp126": tuple(np.array([23, 60, 102]) / 255),
-        "ssp245": tuple(np.array([247, 148, 32]) / 255),
+        "RESCUE-Tier1-Extension-CB1700_2150_1.5": tuple(np.array([247, 148, 32]) / 255),
         "ssp370": tuple(np.array([231, 29, 37]) / 255),
-        "ssp534-over": tuple(np.array([0, 79, 0]) / 255),
+        "RESCUE-Tier1-Extension-CB500st_2110_1.5": tuple(np.array([0, 79, 0]) / 255),
         "ssp585": tuple(np.array([149, 27, 30]) / 255)
     }
     for scenario in reversed(scenarios):
@@ -303,8 +309,12 @@ def plot_component(
 
 def main(args):
     # Set up for main loop
-    percentiles = [5, 17, 50, 83, 95]
-    scenarios = ["ssp119", "ssp126", "ssp245", "ssp370", "ssp534-over", "ssp585"]
+    percentiles = np.arange(0, 101)
+    # scenarios = ["ssp119", "ssp126", "ssp245", "ssp370", "ssp534-over", "ssp585"]
+    scenarios = [
+        'RESCUE-Tier1-Extension-CB1700_2110_2.0',
+        'RESCUE-Tier1-Extension-CB1700_2150_1.5',
+        'RESCUE-Tier1-Extension-CB500st_2110_1.5']
 
     emissions_path = "/Users/gregorymunday/Documents/Papers/ProFSea/cmip7-slr/data/cumulative_cmip6_emissions.json"
     with open(emissions_path) as f:
@@ -318,7 +328,8 @@ def main(args):
     for scenario in scenarios:
         components[scenario] = {
             "gmslr": [], "expansion": [], "antarctica": [],
-            "greenland": [], "glaciers": [], "landwater": []
+            "wais": [], "eais": [], "greenland": [], "glacier": [], 
+            "landwater": []
         }
 
     # Enter 1000x loop
@@ -332,9 +343,10 @@ def main(args):
         raise ValueError("Input source not recognised.")
 
     # Pre-generate the random ensemble member indices
+    # Shape is # (scenario, ens, time)
     n_iterations = 1000
     rng = np.random.default_rng()
-    random_indices = rng.integers(0, high=tas.shape[2], size=n_iterations)
+    random_indices = rng.integers(0, high=tas.shape[1], size=n_iterations)
 
     sampled_tas = []
     sampled_ohc = []
@@ -351,8 +363,8 @@ def main(args):
             task = progress.add_task("[orange1]Simulating and sampling...", total=n_iterations)
             for future in concurrent.futures.as_completed(futures):
                 result_dict, idx_returned = future.result()
-                sampled_tas.append(tas[:, :, idx_returned])
-                sampled_ohc.append(ohc[:, :, idx_returned])
+                sampled_tas.append(tas[:, idx_returned, :])
+                sampled_ohc.append(ohc[:, idx_returned, :])
 
                 # Now add the results into the components dictionary
                 for scenario in scenarios:
@@ -364,7 +376,7 @@ def main(args):
     sampled_tas = np.asarray(sampled_tas) # shape (nens, time, nscen)
     sampled_ohc = np.asarray(sampled_ohc)
 
-    plot_samples(sampled_tas[:, :, -1], sampled_ohc[:, :, -1])
+    plot_samples(sampled_tas[:, -1, :], sampled_ohc[:, -1, :])
 
     # Convert to Numpy arrays
     for scenario, data in components.items():
@@ -376,7 +388,7 @@ def main(args):
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_AIS_MAR_AD.nc")
+    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_RESCUE_101mem.nc")
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
@@ -384,7 +396,7 @@ def main(args):
     ax = fig.add_subplot(232)
     plot_component(ax, sampled_components, "expansion", scenarios)
     ax = fig.add_subplot(233)
-    plot_component(ax, sampled_components, "glaciers", scenarios)
+    plot_component(ax, sampled_components, "glacier", scenarios)
     ax = fig.add_subplot(234)
     plot_component(ax, sampled_components, "antarctica", scenarios)
     ax = fig.add_subplot(235)

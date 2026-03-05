@@ -140,7 +140,8 @@ class Global:
             random_sample: bool=False,
             T_percentile_95: np.ndarray=None,
             OHC_percentile_95: np.ndarray=None,
-            palmer_method: bool=True) -> None:
+            palmer_method: bool=True,
+            active_components: list[str]=None) -> None:
 
         self.end_yr = end_yr
         self.nt = nt
@@ -179,28 +180,39 @@ class Global:
 
         self.seed_seq = np.random.SeedSequence(seed if seed is not None else 1234)
         self.rng = np.random.default_rng(self.seed_seq)
-        child_seeds = self.seed_seq.spawn(8)
-        self.rngs = [np.random.default_rng(s) for s in child_seeds]
+        self._stochastic_components = [
+            "glacier", "antsmb", "greenland_ar6", 
+            "greendyn", "greensmb", "antdyn", "antarctica"
+        ]
+        child_seeds = self.seed_seq.spawn(len(self._stochastic_components))
+        self.component_rngs = {
+            comp: np.random.default_rng(s) 
+            for comp, s in zip(self._stochastic_components, child_seeds)
+        }
 
-        self.wa = AntarcticaISMIP6("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/wa_params_MAR_AD_2term.nc")
-        self.ea = AntarcticaISMIP6("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/ea_params_MAR_AD_2term.nc")
-        self.pen = AntarcticaISMIP6("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/pen_params_MAR_AD_2term.nc")
+        self.active_components = active_components or [
+            'expansion', 'glacier', 'greenland_ar6', 'antarctica', 'landwater'
+        ]
+
+        # Setup AIS emulator, if needed
+        if "antarctica" in self.active_components:
+            wais_path = Path(__file__).parent / 'aux_data' / "wais_params.nc"
+            eais_path = Path(__file__).parent / 'aux_data' / "eais_params.nc"
+            aispen_path = Path(__file__).parent / 'aux_data' / "aispen_params.nc"
+            self.wais_model = AntarcticaISMIP6(wais_path)
+            self.eais_model = AntarcticaISMIP6(eais_path)
+            self.aispen_model = AntarcticaISMIP6(aispen_path)
 
     
     def get_components(self) -> dict:
         """Get all GMSLR components as a dictionary."""
-        components_dict = {
-            'expansion': self.expansion,
-            'glacier': self.glacier,
-            'greenland': self.greenland_ar6,
-            'greendyn': self.greendyn,
-            'greensmb': self.greensmb,
-            'antsmb': self.antsmb,
-            'antdyn': self.antdyn,
-            'antnet': self.antnet,
-            'landwater': self.landwater,
-            'gmslr': self.gmslr
-        }
+        components_dict = {}
+        # Explicitly check for sub-components alongside active ones
+        export_list = self.active_components + ['gmslr', 'wais', 'eais', 'aispen']
+        
+        for comp in export_list:
+            if hasattr(self, comp):
+                components_dict[comp] = getattr(self, comp)
         return components_dict
 
     def list_components(self) -> list:
@@ -242,12 +254,7 @@ class Global:
             T_change: np.ndarray, 
             OHC_change: np.ndarray, 
             cum_emissions_total: int=None) -> None:
-        """Run the emulator to project GMSLR components.
-
-        Returns
-        -------
-        None
-        """
+        """Run the emulator to project GMSLR components."""
         self.scenario = scenario
         self.T_change = np.asarray(T_change)
         self.OHC_change = np.asarray(OHC_change)
@@ -256,122 +263,113 @@ class Global:
         if self.input_ensemble:
             self.nt = self.T_change.shape[0]
 
-        if self.scenario not in ['rcp26', 'rcp45', 'rcp85', 
-            'ssp126', 'ssp245', 'ssp585'] and self.cum_emissions_total is None:
-            raise ValueError(
-                'If the scenario is not rcp26, rcp45, rcp85, ssp126, ssp245 or ssp585, '
-                'you must provide the total \ncumulative emissions from 2015 to 2100 '
-                'using the cum_emissions_total keyword argument. This is required \n'
-                'to calculate the Antarctic dynamic contribution to GMSLR.')
-
         T_ens, Exp_ens, T_int_ens, T_int_med = self.calculate_drivers() 
-        self.expansion = np.tile(Exp_ens, (self.nm, 1))
         fraction = self.rng.random(self.nm * self.nt) # correlation between antsmb and antdyn
         
+        # Evaluate Inline Components
+        if 'expansion' in self.active_components:
+            self.expansion = np.tile(Exp_ens, (self.nm, 1))
+
+        # Evaluate Standard Components
         if self.parallel:
             self.run_parallel_projections(T_int_med, T_int_ens, T_ens, fraction)
         else:
             self.run_serial_projections(T_int_med, T_int_ens, T_ens, fraction)
-        
-        # self.antnet = self.antsmb + self.antdyn
-        self.antnet = self.wa.predict(T_ens.squeeze(), display_progress=False) + self.ea.predict(T_ens.squeeze(), display_progress=False) + self.pen.predict(T_ens.squeeze(), display_progress=False)
-        random_ais_idx = self.rng.integers(low=0, high=43)
-        self.antnet = self.antnet[random_ais_idx, :, :] # size (1000, 295)
-        self.antnet = np.repeat(self.antnet, self.nt, axis=0)
 
+        # Handle Random Sampling
         if self.random_sample:
             random_idx = self.rng.integers(low=0, high=self.nm)
-            self.expansion = self.expansion[random_idx][None, :]
-            self.antnet = self.antnet[random_idx][None, :]
-            self.antdyn = self.antdyn[random_idx][None, :]
-            self.antsmb = self.antsmb[random_idx][None, :]
-            self.glacier = self.glacier[random_idx][None, :]
-            self.greenland_ar6 = self.greenland_ar6[random_idx][None, :]
-            self.landwater = self.landwater[random_idx][None, :]
+            
+            for comp in self.active_components + ['wais', 'eais', 'aispen']:
+                if hasattr(self, comp):
+                    comp_data = getattr(self, comp)
+                    if comp_data.ndim > 1:
+                        setattr(self, comp, comp_data[random_idx][None, :])
 
-        self.gmslr = self.glacier + self.greenland_ar6 + self.antnet + self.landwater + self.expansion
+        # Calculate GMSLR
+        components_to_sum = [getattr(self, comp) for comp in self.active_components if hasattr(self, comp)]
+        if not components_to_sum:
+            raise RuntimeError("No active components were evaluated. Cannot compute GMSLR.")
+        self.gmslr = np.sum(components_to_sum, axis=0)
 
-        # TODO Parallelise this section as it's a bit slow
+        # Output percentiles
         if self.output_percentiles is not None:
             console.log(f"Sampling {len(self.output_percentiles)} members per component...")
             self.gmslr = sample_members_2D(self.gmslr, self.output_percentiles)
-            self.expansion = sample_members_2D(self.expansion, self.output_percentiles)
-            self.antnet = sample_members_2D(self.antnet, self.output_percentiles)
-            self.antdyn = sample_members_2D(self.antdyn, self.output_percentiles)
-            self.antsmb = sample_members_2D(self.antsmb, self.output_percentiles)
-            self.glacier = sample_members_2D(self.glacier, self.output_percentiles)
-            self.greenland_ar6 = sample_members_2D(self.greenland_ar6, self.output_percentiles)
-            self.landwater = sample_members_2D(self.landwater, self.output_percentiles)
-            self.greensmb = sample_members_2D(self.greensmb, self.output_percentiles)
-            self.greendyn = sample_members_2D(self.greendyn, self.output_percentiles)
-            # self.greenland_ar5 = self.sample_members_2D(self.greenland_ar5, self.output_percentiles)
-            # self.landwater_ar6 = self.sample_members_2D(self.landwater_ar6, self.output_percentiles)
+            
+            for comp in self.active_components + ['wais', 'eais', 'aispen']:
+                if hasattr(self, comp):
+                    sampled_data = sample_members_2D(getattr(self, comp), self.output_percentiles)
+                    setattr(self, comp, sampled_data)
+
+    def _build_task_registry(
+            self, 
+            T_int_med: np.ndarray, 
+            T_int_ens: np.ndarray, 
+            T_ens: np.ndarray, 
+            fraction: np.ndarray) -> dict:
+        """Helper to map active component names to their functions and arguments."""
+        registry = {}
+        for comp in self.active_components:
+            rng = self.component_rngs.get(comp)
+
+            if comp == "glacier":
+                registry[comp] = (self.project_glacier, (T_int_med, T_int_ens, rng))
+            elif comp == "antsmb":
+                registry[comp] = (self.project_antsmb, (T_int_ens, rng, fraction))
+            elif comp == "greenland_ar6":
+                registry[comp] = (self.project_greenland_AR6, (T_ens, rng))
+            elif comp == "greendyn":
+                registry[comp] = (self.project_greendyn_AR5, (rng,))
+            elif comp == "greensmb":
+                registry[comp] = (self.project_greensmb_AR5, (T_ens, rng))
+            elif comp == "antdyn":
+                registry[comp] = (self.project_antdyn, (rng, fraction))
+            elif comp == "landwater":
+                registry[comp] = (self.project_landwater_ar6, ())
+            elif comp == "antarctica":
+                registry[comp] = (self.project_antarctica_ismip6, (T_ens, rng))
+
+        return registry
 
     def run_serial_projections(
             self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
             T_ens: np.ndarray, fraction: np.ndarray) -> None:
-        """Run components of the emulator sequentially.
+        """Run components of the emulator sequentially."""        
+        registry = self._build_task_registry(T_int_med, T_int_ens, T_ens, fraction)
         
-        Returns
-        -------
-        None
-        """
-        child_seeds = self.seed_seq.spawn(8)
-        rngs = [np.random.default_rng(s) for s in child_seeds]
-        self.glacier = self.project_glacier(T_int_med, T_int_ens, rngs[0])
-        self.antsmb = self.project_antsmb(T_int_ens, rngs[1], fraction)
-        self.greenland_ar6 = self.project_greenland_AR6(T_ens, rngs[2])
-        self.greendyn = self.project_greendyn_AR5(rngs[3])
-        self.greensmb = self.project_greensmb_AR5(T_ens, rngs[4])
-        self.antdyn = self.project_antdyn(rngs[5], fraction)
-        
-        # _project_landwater_ar5 corresponds to 'landwater' key in the parallel map
-        self.landwater = self._project_landwater_ar5(rngs[6])
-        # project_landwater corresponds to 'landwater_ar6' key in the parallel map
-        self.landwater_ar6 = self.project_landwater()
+        for comp in self.active_components:
+            if comp in registry:
+                func, args = registry[comp]
+                setattr(self, comp, func(*args))
 
-        self.greenland_ar5 = self.greendyn + self.greensmb
+        # Handle AR5 greenland combination if both are active
+        if 'greendyn' in self.active_components and 'greensmb' in self.active_components:
+            self.greenland_ar5 = self.greendyn + self.greensmb
             
     def run_parallel_projections(
         self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
         T_ens: np.ndarray, fraction: np.ndarray) -> None:
-        child_seeds = self.seed_seq.spawn(8)
-        rngs = [np.random.default_rng(s) for s in child_seeds]
+        """Run components of the emulator in parallel."""
+        registry = self._build_task_registry(T_int_med, T_int_ens, T_ens, fraction)
 
-        # Use a context manager for the executor
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = {
-                executor.submit(self.project_glacier, T_int_med, T_int_ens, rngs[0]): 'glacier',
-                executor.submit(self.project_antsmb, T_int_ens, rngs[1], fraction): 'antsmb',
-                executor.submit(self.project_greenland_AR6, T_ens, rngs[2]): 'greenland',
-                executor.submit(self.project_greendyn_AR5, rngs[3]): 'greendyn',
-                executor.submit(self.project_greensmb_AR5, T_ens, rngs[4]): 'greensmb',
-                executor.submit(self.project_antdyn, rngs[5], fraction): 'antdyn',
-                executor.submit(self._project_landwater_ar5, rngs[6]): 'landwater',
-                executor.submit(self.project_landwater): 'landwater_ar6' # Assuming no RNG needed here
-            }
+            futures = {}
+            for comp in self.active_components:
+                if comp in registry:
+                    func, args = registry[comp]
+                    futures[executor.submit(func, *args)] = comp
             
-            results = {}
             for future in concurrent.futures.as_completed(futures):
-                key = futures[future]
+                comp_name = futures[future]
                 try:
-                    # Letting the exception propagate is safer than silently masking it
-                    results[key] = future.result() 
+                    setattr(self, comp_name, future.result()) 
                 except Exception as e:
-                    raise RuntimeError(f"Component '{key}' failed during projection.") from e
+                    raise RuntimeError(f"Component '{comp_name}' failed during projection.") from e
 
-        self.glacier = results['glacier']
-
-        self.glacier = results['glacier']
-        self.antsmb = results['antsmb']
-        self.greenland_ar6 = results['greenland']
-        self.greenland_ar5 = results['greendyn'] + results['greensmb']
-        self.greendyn = results['greendyn']
-        self.greensmb = results['greensmb']
-        self.antdyn = results['antdyn']
-        self.landwater = results['landwater']
-        self.landwater_ar6 = results['landwater_ar6']
-
+        # Handle AR5 greenland combination if both are active
+        if 'greendyn' in self.active_components and 'greensmb' in self.active_components:
+            self.greenland_ar5 = self.greendyn + self.greensmb
   
     def calculate_drivers(self) -> tuple:
         """Calculate the drivers of GMSLR: temperature change and 
@@ -435,6 +433,19 @@ class Global:
         therm_ens = z[:, np.newaxis] * therm_std + therm_med
         T_int_ens = z[:, np.newaxis] * T_int_std + T_int_med
         return T_ens, therm_ens, T_int_ens, T_int_med  
+
+    def project_antarctica_ismip6(self, T_ens: np.ndarray, rng) -> np.ndarray:
+        wais_raw = self.wais_model.predict(T_ens.squeeze(), display_progress=False)
+        eais_raw = self.eais_model.predict(T_ens.squeeze(), display_progress=False)
+        aispen_raw = self.aispen_model.predict(T_ens.squeeze(), display_progress=False)
+
+        random_ais_idx = rng.integers(low=0, high=43)
+
+        # Match the correct output shape
+        self.wais = np.repeat(wais_raw[random_ais_idx, :, :], self.nt, axis=0)
+        self.eais = np.repeat(eais_raw[random_ais_idx, :, :], self.nt, axis=0)
+        self.aispen = np.repeat(aispen_raw[random_ais_idx, :, :], self.nt, axis=0)
+        return self.wais + self.eais + self.aispen
 
     def project_glacier(
             self, T_int_med: np.ndarray, T_int_ens: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -631,7 +642,7 @@ class Global:
         elif fraction.size != self.nm * self.nt:
             raise ValueError('fraction is the wrong size')
         else:
-            fraction.shape = (self.nm, self.nt)
+            fraction = fraction.reshape((self.nm, self.nt))
 
         smax = 0.35 # max value of S in 13.SM.1.5
         ainterfactor = 1 - fraction * smax
@@ -772,7 +783,7 @@ class Global:
             # For dyn at 2100 Chapter 13 gives [-20,185] mm for all scenarios
         return self.time_projection(0.41, 0.20, final, rng, fraction=fraction) + self.dant
 
-    def project_landwater(self) -> np.ndarray:
+    def project_landwater_ar6(self) -> np.ndarray:
         """Project land water storage contribution to GMSLR.
         
         Returns
@@ -794,10 +805,10 @@ class Global:
         remainder = (self.nt * self.nm) % lw.shape[0]
         lw = np.vstack([np.tile(lw, (full_repeats, 1)), lw[:remainder]])
         lw = lw.reshape(self.nt * self.nm, lw.shape[1])
-        lw = lw[:, 1:-1] # Start at 2006, end at 2299
+        lw = lw[:, 1:] # Start at 2006, end at 2299
         return lw
   
-    def _project_landwater_ar5(self, rng: np.random.Generator) -> np.ndarray:
+    def project_landwater_ar5(self, rng: np.random.Generator) -> np.ndarray:
         """Old projection function. Project land water storage 
         contribution to GMSLR.
         

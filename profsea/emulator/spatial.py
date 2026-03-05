@@ -70,11 +70,11 @@ class Spatial:
             raise ValueError(
                 "Provide namelist of global projection components. "
                 "Currently allowed components are expansion, antdyn, "
-                "antsmb, glacier, greenland and landwater")
+                "antsmb, wais, eais, glacier, greenland and landwater")
 
         self.components = {}
-        component_path = Path(components_dir) / f"{scenario}_global.nc"
-        ds_component = xr.load_dataset(component_path)
+        component_path = Path(components_dir)
+        ds_component = xr.load_dataset(component_path).sel(scenario=scenario)
         for comp in component_list:
             self.components[comp] = ds_component[comp].data
   
@@ -197,7 +197,7 @@ class Spatial:
                 dtype=np.float32)  # (no FPs applied)
 
             # Load global projections in for the component
-            mc_timeseries = self.components[comp]
+            mc_timeseries = self.components[comp] # shape (mem, time)
             sampled_mc = mc_timeseries[resamples, :self.n_years]
             montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None], chunks="auto")
 
@@ -214,6 +214,16 @@ class Spatial:
             elif comp == "greenland":
                 greenland_fp = self._calc_greenland_fingerprint_ar6()
                 montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * greenland_fp[None, None, :, :]
+            
+            elif comp == "wais":
+                wais_fp = self._calc_antarctic_fingerprint(comp)
+                montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * wais_fp[None, None, :, :]
+                del wais_fp
+
+            elif comp == "eais":
+                eais_fp = self._calc_antarctic_fingerprint(comp)
+                montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * eais_fp[None, None, :, :]
+                del eais_fp
 
             else:
                 fp_vals = self._calc_fingerprint_contributions(FPlist, comp)
@@ -334,7 +344,26 @@ class Spatial:
             lat=np.linspace(-90, 90, self.nlat, endpoint=False) + 0.5, 
             lon=np.linspace(0, 360, self.nlon, endpoint=False) + 0.5, 
             method="linear").data * 1000  # convert mm to m SLE per m GMSLR
+        return fp_vals
 
+    def _calc_antarctic_fingerprint(self, fname: str) -> da.array:
+        """Load and prepare the WAIS fingerprint.
+
+        Fingerprints from Kopp, R. E. (2022). Framework for Assessing Changes 
+        To Sea-level (FACTS) Module Data (1.0) [Data set]. Zenodo.
+        
+        :return dask array containing Antarctic fingerprint
+        """
+        # Load in the fingerprint
+        fp_path = Path(self.fingerprint_dir) / os.path.join(fname, ".nc")
+        print(fp_path)
+        fp_ds = xr.open_dataset(fp_path, chunks={})
+
+        # Interpolate to (180, 360) grid
+        fp_vals = fp_ds.fp.interp(
+            lat=np.linspace(-90, 90, self.nlat, endpoint=False) + 0.5, 
+            lon=np.linspace(0, 360, self.nlon, endpoint=False) + 0.5, 
+            method="linear").data * 1000  # convert mm to m SLE per m GMSLR
         return fp_vals
 
     def _load_CMIP6_slopes(self) -> np.ndarray:
@@ -382,7 +411,7 @@ class Spatial:
         # Other FPs have multiple components
         components_todo = [
             c for c in list(self.components.keys()) 
-            if c not in ["expansion", "landwater", "greenland"]]
+            if c not in ["expansion", "landwater", "greenland", "wais", "eais"]]
         for comp in components_todo:
             slangen_path = Path(self.fingerprint_dir) / f"{comp}_slangen_nomask.nc"
             spada_path = Path(self.fingerprint_dir) / f"{comp}_spada_nomask.nc"
