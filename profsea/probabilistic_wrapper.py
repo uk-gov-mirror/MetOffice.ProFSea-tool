@@ -1,6 +1,7 @@
 import argparse
 import concurrent.futures
 import json
+from pathlib import Path
 
 from fair import FAIR
 from fair.io import read_properties
@@ -19,15 +20,22 @@ worker_tas = None
 worker_ohc = None
 worker_emissions = None
 worker_scenarios = None
+worker_emulator = None
 
 def init_worker(tas, ohc, emissions, scenarios):
     """Initialize worker with read-only shared data."""
-    global worker_tas, worker_ohc, worker_emissions, worker_scenarios
+    global worker_tas, worker_ohc, worker_emissions, worker_scenarios, worker_emulator
     worker_tas = tas.copy()
     worker_ohc = ohc.copy()
     worker_emissions = emissions.copy()
     worker_scenarios = scenarios.copy()
 
+    worker_emulator = Global(
+        2301,
+        input_ensemble=True,
+        random_sample=True,
+        parallel=False 
+    )
 
 def index_df(df: pd.DataFrame, baseline_start: int, baseline_end: int) -> pd.DataFrame:
     meta_cols = ['ensemble_member', 'scenario', 'region', 'variable', 'unit', 'climate_model']
@@ -107,6 +115,25 @@ def load_magicc_forcing(
     return tas_arr, ohc_arr
 
 
+def load_fair_forcing(
+        input_path: str, baseline_start: int, baseline_end: int) -> tuple[np.ndarray]:
+    tas_path = Path(input_path) / "tas.nc"
+    ohc_path = Path(input_path) / "ohc.nc"
+
+    tas = xr.load_dataarray(tas_path)
+    ohc= xr.laod_dataarray(ohc_path)
+
+    tas_baseline = tas.loc[dict(layer=0, timebounds=np.arange(baseline_start, baseline_end+1))].mean()
+    ohc_baseline = ohc.loc[dict(timebounds=np.arange(baseline_start, baseline_end+1))].mean()
+
+    tas = tas.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline  # shape (294, 7, 841)
+    ohc = ohc.loc[dict(timebounds=np.arange(2006, 2301))] - ohc_baseline
+
+
+
+    return tas.values, ohc.values
+
+
 def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[np.ndarray]:
     f = FAIR()
     f.define_time(1750, 2300, 1)
@@ -134,40 +161,35 @@ def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[n
     tas_baseline = f.temperature.loc[dict(layer=0, timebounds=np.arange(baseline_start, baseline_end+1))].mean()
     ohc_baseline = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(baseline_start, baseline_end+1))].mean()
 
-    tas = f.temperature.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline  # shape (294, 7, 841)
+    tas = f.temperature.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline
     ohc = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(2006, 2301))] - ohc_baseline
+
+    print(tas.values.shape)
     return tas.values, ohc.values
 
 
-def simulation_task(random_idx):
+def simulation_task(random_idx: int):
     """Runs the emulator for a single ensemble member across all scenarios."""
     # Access data from global scope (initialized via init_worker)
     tas_sampled = worker_tas[:, :, random_idx]
     ohc_sampled = worker_ohc[:, :, random_idx]
-    results = {}
-    for scenario in worker_scenarios:
-        results[scenario] = {}
+    results = {scenario: {} for scenario in worker_scenarios}
 
     for idx, scenario in enumerate(worker_scenarios):
-        emulator = Global(
+        worker_emulator.project(
+            scenario,
             np.expand_dims(tas_sampled[:, idx], axis=0),
             np.expand_dims(ohc_sampled[:, idx], axis=0),
-            scenario,
-            2301,
-            input_ensemble=True,
-            random_sample=True,
-            cum_emissions_total=worker_emissions[scenario],
-            parallel=False 
+            cum_emissions_total=worker_emissions[scenario]
         )
-        emulator.project()
 
-        results[scenario]["gmslr"] = emulator.gmslr
-        results[scenario]["expansion"] = emulator.expansion
-        results[scenario]["antarctica"] = emulator.antnet
-        results[scenario]["greenland"] = emulator.greenland_ar6
-        results[scenario]["glaciers"] = emulator.glacier
-        results[scenario]["landwater"] = emulator.landwater
-    return tas_sampled, ohc_sampled, results
+        results[scenario]["gmslr"] = worker_emulator.gmslr
+        results[scenario]["expansion"] = worker_emulator.expansion
+        results[scenario]["antarctica"] = worker_emulator.antnet
+        results[scenario]["greenland"] = worker_emulator.greenland_ar6
+        results[scenario]["glaciers"] = worker_emulator.glacier
+        results[scenario]["landwater"] = worker_emulator.landwater
+    return results, random_idx
 
 
 def plot_samples(tas: np.ndarray, ohc: np.ndarray) -> None:
@@ -183,6 +205,9 @@ def plot_samples(tas: np.ndarray, ohc: np.ndarray) -> None:
     ax.set_xlabel("Simulation years")
     ax.set_ylabel("OHC (J)")
 
+    ax.plot(np.arange(tas.shape[1]), np.median(tas, axis=0), color="black")
+
+    fig.savefig("forcing.png", dpi=200)
     plt.show()
     plt.close()
 
@@ -256,14 +281,14 @@ def plot_component(
         "ssp585": tuple(np.array([149, 27, 30]) / 255)
     }
     for scenario in reversed(scenarios):
-        plt.fill_between(
+        ax.fill_between(
             time, 
             component_dict[scenario][component][1], 
             component_dict[scenario][component][3],  
             color=ssp_colours[scenario], 
             edgecolor='none',
             alpha=0.3)
-        plt.plot(
+        ax.plot(
             time, 
             component_dict[scenario][component][2], 
             label=f"{scenario}", 
@@ -300,6 +325,8 @@ def main(args):
     if args.input.lower() == "magicc":
         tas, ohc = load_magicc_forcing(args.input_path, scenarios, baseline_start, baseline_end)
     elif args.input.lower() == "fair":
+        tas, ohc = load_fair_forcing(args.input_path, scenarios, baseline_start, baseline_end)
+    elif args.input.lower() == "run_fair":
         tas, ohc = run_fair(baseline_start, baseline_end, scenarios)
     else:
         raise ValueError("Input source not recognised.")
@@ -323,9 +350,9 @@ def main(args):
         with Progress() as progress:
             task = progress.add_task("[orange1]Simulating and sampling...", total=n_iterations)
             for future in concurrent.futures.as_completed(futures):
-                tas_sampled, ohc_sampled, result_dict = future.result()
-                sampled_tas.append(tas_sampled)
-                sampled_ohc.append(ohc_sampled)
+                result_dict, idx_returned = future.result()
+                sampled_tas.append(tas[:, :, idx_returned])
+                sampled_ohc.append(ohc[:, :, idx_returned])
 
                 # Now add the results into the components dictionary
                 for scenario in scenarios:
@@ -333,6 +360,11 @@ def main(args):
                         components[scenario][key].append(result_dict[scenario][key])
 
                 progress.update(task, advance=1)
+
+    sampled_tas = np.asarray(sampled_tas) # shape (nens, time, nscen)
+    sampled_ohc = np.asarray(sampled_ohc)
+
+    plot_samples(sampled_tas[:, :, -1], sampled_ohc[:, :, -1])
 
     # Convert to Numpy arrays
     for scenario, data in components.items():
@@ -344,7 +376,7 @@ def main(args):
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_AIS_JAN_pen.nc")
+    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_AIS_MAR_AD.nc")
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
@@ -362,16 +394,10 @@ def main(args):
 
     fig.savefig("probabilistic_components_ssps.png", dpi=300)
     plt.show()
-    
-
-    sampled_tas = np.asarray(sampled_tas) # shape (nens, time, nscen)
-    sampled_ohc = np.asarray(sampled_ohc)
-
-    plot_samples(sampled_tas[:, :, -2], sampled_ohc[:, :, -2])
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(formatter_class=RichHelpFormatter)
-    p.add_argument("--input", default="fair", required=False, help="Input climate forcing source (default: FaIR)", type=str)
+    p.add_argument("--input", default="run_fair", required=False, help="Input climate forcing source (default: FaIR)", type=str)
     p.add_argument("--input_path", required=False, help="Path to input climate forcing", type=str)
     main(p.parse_args())

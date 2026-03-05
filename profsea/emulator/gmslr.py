@@ -21,7 +21,7 @@ from scipy.stats import norm, truncnorm
 import xarray as xr
 
 from profsea.utils import sample_members_2D
-from .antarctica import AntarcticaISMIP6
+from .antarctica import AntarcticaISMIP6 
 
 console = Console()
 
@@ -128,9 +128,6 @@ class Global:
 
     def __init__(
             self, 
-            T_change: np.ndarray,
-            OHC_change: np.ndarray,
-            scenario: str,
             end_yr: int,
             seed: int=1234,
             nt: int=100,
@@ -143,15 +140,9 @@ class Global:
             random_sample: bool=False,
             T_percentile_95: np.ndarray=None,
             OHC_percentile_95: np.ndarray=None,
-            cum_emissions_total: np.ndarray=None,
             palmer_method: bool=True) -> None:
-        
-        np.random.seed(None if seed is None else seed)
-        self.T_change = np.asarray(T_change)
-        self.OHC_change = np.asarray(OHC_change)
-        self.scenario = scenario
+
         self.end_yr = end_yr
-        self.seed = seed
         self.nt = nt
         self.nm = nm
         self.tcv = tcv
@@ -162,7 +153,6 @@ class Global:
         self.random_sample = random_sample
         self.T_percentile_95 = T_percentile_95
         self.OHC_percentile_95 = OHC_percentile_95
-        self.cum_emissions_total = cum_emissions_total
         self.palmer_method = palmer_method
 
         # First year of AR5 projections
@@ -187,22 +177,15 @@ class Global:
         # Conversion factor for Gt to m SLE
         self.mSLEoGt = 1e12 / 3.61e14 * 1e-3
 
-        if input_ensemble:
-            self.nt = self.T_change.shape[0]
+        self.seed_seq = np.random.SeedSequence(seed if seed is not None else 1234)
+        self.rng = np.random.default_rng(self.seed_seq)
+        child_seeds = self.seed_seq.spawn(8)
+        self.rngs = [np.random.default_rng(s) for s in child_seeds]
 
-        # Sensitivity of thermosteric SLR to ocean heat content change
-        # From Turner et al. (2023)
-        self.exp_efficiency = np.random.normal(
-            loc=0.113, scale=0.013, size=self.nt)[:, None] * 1e-24 # m/YJ
+        self.wa = AntarcticaISMIP6("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/wa_params_MAR_AD_2term.nc")
+        self.ea = AntarcticaISMIP6("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/ea_params_MAR_AD_2term.nc")
+        self.pen = AntarcticaISMIP6("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/pen_params_MAR_AD_2term.nc")
 
-
-        if self.scenario not in ['rcp26', 'rcp45', 'rcp85', 
-            'ssp126', 'ssp245', 'ssp585'] and self.cum_emissions_total is None:
-            raise ValueError(
-                'If the scenario is not rcp26, rcp45, rcp85, ssp126, ssp245 or ssp585, '
-                'you must provide the total \ncumulative emissions from 2015 to 2100 '
-                'using the cum_emissions_total keyword argument. This is required \n'
-                'to calculate the Antarctic dynamic contribution to GMSLR.')
     
     def get_components(self) -> dict:
         """Get all GMSLR components as a dictionary."""
@@ -253,16 +236,37 @@ class Global:
             ds[name] = xr_dataArray
         ds.to_netcdf(os.path.join(output_dir,f'{scenario_name}_global.nc'))
 
-    def project(self) -> None:
+    def project(
+            self, 
+            scenario: str, 
+            T_change: np.ndarray, 
+            OHC_change: np.ndarray, 
+            cum_emissions_total: int=None) -> None:
         """Run the emulator to project GMSLR components.
 
         Returns
         -------
         None
         """
+        self.scenario = scenario
+        self.T_change = np.asarray(T_change)
+        self.OHC_change = np.asarray(OHC_change)
+        self.cum_emissions_total = cum_emissions_total
+
+        if self.input_ensemble:
+            self.nt = self.T_change.shape[0]
+
+        if self.scenario not in ['rcp26', 'rcp45', 'rcp85', 
+            'ssp126', 'ssp245', 'ssp585'] and self.cum_emissions_total is None:
+            raise ValueError(
+                'If the scenario is not rcp26, rcp45, rcp85, ssp126, ssp245 or ssp585, '
+                'you must provide the total \ncumulative emissions from 2015 to 2100 '
+                'using the cum_emissions_total keyword argument. This is required \n'
+                'to calculate the Antarctic dynamic contribution to GMSLR.')
+
         T_ens, Exp_ens, T_int_ens, T_int_med = self.calculate_drivers() 
         self.expansion = np.tile(Exp_ens, (self.nm, 1))
-        fraction = np.random.rand(self.nm * self.nt) # correlation between antsmb and antdyn
+        fraction = self.rng.random(self.nm * self.nt) # correlation between antsmb and antdyn
         
         if self.parallel:
             self.run_parallel_projections(T_int_med, T_int_ens, T_ens, fraction)
@@ -270,19 +274,13 @@ class Global:
             self.run_serial_projections(T_int_med, T_int_ens, T_ens, fraction)
         
         # self.antnet = self.antsmb + self.antdyn
-        wa = Antarctica("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/wa_params_JAN.nc")
-        ea = Antarctica("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/ea_params_JAN.nc")
-        pen = Antarctica("/Users/gregorymunday/Documents/Papers/ProFSea/ProFSea-tool/profsea/emulator/aux_data/pen_params_JAN.nc")
-        self.antnet = wa.predict(T_ens.squeeze(), T_int_ens.squeeze(), display_progress=False) + ea.predict(T_ens.squeeze(), T_int_ens.squeeze(), display_progress=False) + pen.predict(T_ens.squeeze(), T_int_ens.squeeze(), display_progress=False)
-        ais_rng = np.random.default_rng()
-        random_ais_idx = ais_rng.integers(low=0, high=43)
-        self.antnet = self.antnet[random_ais_idx, :, :]
-        self.gmslr = self.glacier + self.greenland_ar6 + self.antnet + self.landwater + self.expansion
+        self.antnet = self.wa.predict(T_ens.squeeze(), display_progress=False) + self.ea.predict(T_ens.squeeze(), display_progress=False) + self.pen.predict(T_ens.squeeze(), display_progress=False)
+        random_ais_idx = self.rng.integers(low=0, high=43)
+        self.antnet = self.antnet[random_ais_idx, :, :] # size (1000, 295)
+        self.antnet = np.repeat(self.antnet, self.nt, axis=0)
 
-        rng = np.random.default_rng()
         if self.random_sample:
-            random_idx = rng.integers(low=0, high=self.nm)
-            self.gmslr = self.gmslr[random_idx][None, :]
+            random_idx = self.rng.integers(low=0, high=self.nm)
             self.expansion = self.expansion[random_idx][None, :]
             self.antnet = self.antnet[random_idx][None, :]
             self.antdyn = self.antdyn[random_idx][None, :]
@@ -290,6 +288,8 @@ class Global:
             self.glacier = self.glacier[random_idx][None, :]
             self.greenland_ar6 = self.greenland_ar6[random_idx][None, :]
             self.landwater = self.landwater[random_idx][None, :]
+
+        self.gmslr = self.glacier + self.greenland_ar6 + self.antnet + self.landwater + self.expansion
 
         # TODO Parallelise this section as it's a bit slow
         if self.output_percentiles is not None:
@@ -316,47 +316,51 @@ class Global:
         -------
         None
         """
-        self.glacier = self.project_glacier(T_int_med, T_int_ens)
-        self.antsmb = self.project_antsmb(T_int_ens, fraction)
-        self.greenland_ar6 = self.project_greenland_AR6(T_ens)
-        self.greendyn = self.project_greendyn_AR5()
-        self.greensmb = self.project_greensmb_AR5(T_ens)
-        self.antdyn = self.project_antdyn(fraction)
+        child_seeds = self.seed_seq.spawn(8)
+        rngs = [np.random.default_rng(s) for s in child_seeds]
+        self.glacier = self.project_glacier(T_int_med, T_int_ens, rngs[0])
+        self.antsmb = self.project_antsmb(T_int_ens, rngs[1], fraction)
+        self.greenland_ar6 = self.project_greenland_AR6(T_ens, rngs[2])
+        self.greendyn = self.project_greendyn_AR5(rngs[3])
+        self.greensmb = self.project_greensmb_AR5(T_ens, rngs[4])
+        self.antdyn = self.project_antdyn(rngs[5], fraction)
         
         # _project_landwater_ar5 corresponds to 'landwater' key in the parallel map
-        self.landwater = self._project_landwater_ar5()
+        self.landwater = self._project_landwater_ar5(rngs[6])
         # project_landwater corresponds to 'landwater_ar6' key in the parallel map
         self.landwater_ar6 = self.project_landwater()
 
         self.greenland_ar5 = self.greendyn + self.greensmb
             
     def run_parallel_projections(
-            self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
-            T_ens: np.ndarray, fraction: np.ndarray) -> None:
-        """Run components of the emulator in parallel.
-        
-        Returns
-        -------
-        None
-        """
-        executor = get_shared_executor()
-        futures = {
-            executor.submit(self.project_glacier, T_int_med, T_int_ens): 'glacier',
-            executor.submit(self.project_antsmb, T_int_ens, fraction): 'antsmb',
-            executor.submit(self.project_greenland_AR6, T_ens): 'greenland',
-            executor.submit(self.project_greendyn_AR5): 'greendyn',
-            executor.submit(self.project_greensmb_AR5, T_ens): 'greensmb',
-            executor.submit(self.project_antdyn, fraction): 'antdyn',
-            executor.submit(self._project_landwater_ar5): 'landwater',
-            executor.submit(self.project_landwater): 'landwater_ar6'
-        }
-        results = {}
-        for future in concurrent.futures.as_completed(futures):
-            key = futures[future]
-            try:
-                results[key] = future.result()
-            except Exception as e:
-                print(f"{key} generated an exception: {e}")
+        self, T_int_med: np.ndarray, T_int_ens: np.ndarray, 
+        T_ens: np.ndarray, fraction: np.ndarray) -> None:
+        child_seeds = self.seed_seq.spawn(8)
+        rngs = [np.random.default_rng(s) for s in child_seeds]
+
+        # Use a context manager for the executor
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {
+                executor.submit(self.project_glacier, T_int_med, T_int_ens, rngs[0]): 'glacier',
+                executor.submit(self.project_antsmb, T_int_ens, rngs[1], fraction): 'antsmb',
+                executor.submit(self.project_greenland_AR6, T_ens, rngs[2]): 'greenland',
+                executor.submit(self.project_greendyn_AR5, rngs[3]): 'greendyn',
+                executor.submit(self.project_greensmb_AR5, T_ens, rngs[4]): 'greensmb',
+                executor.submit(self.project_antdyn, rngs[5], fraction): 'antdyn',
+                executor.submit(self._project_landwater_ar5, rngs[6]): 'landwater',
+                executor.submit(self.project_landwater): 'landwater_ar6' # Assuming no RNG needed here
+            }
+            
+            results = {}
+            for future in concurrent.futures.as_completed(futures):
+                key = futures[future]
+                try:
+                    # Letting the exception propagate is safer than silently masking it
+                    results[key] = future.result() 
+                except Exception as e:
+                    raise RuntimeError(f"Component '{key}' failed during projection.") from e
+
+        self.glacier = results['glacier']
 
         self.glacier = results['glacier']
         self.antsmb = results['antsmb']
@@ -384,6 +388,11 @@ class Global:
         T_int_med: np.ndarray
             Median of time-integral temperature anomalies.
         """
+        # Sensitivity of thermosteric SLR to ocean heat content change
+        # From Turner et al. (2023)
+        exp_efficiency = self.rng.normal(
+            loc=0.113, scale=0.013, size=self.nt)[:, None] * 1e-24 # m/YJ
+
         if self.input_ensemble:
             # Check if dimensions are the right way around 
             if self.T_change.shape[1] != self.nyr: 
@@ -394,16 +403,16 @@ class Global:
             T_med = np.percentile(self.T_change, 50, axis=0)
             T_std = np.std(self.T_change, axis=0)
 
-            therm_med = np.percentile(self.OHC_change, 50, axis=0) * self.exp_efficiency
-            therm_std = np.std(self.OHC_change * self.exp_efficiency, axis=0)
+            therm_med = np.percentile(self.OHC_change, 50, axis=0) * exp_efficiency
+            therm_std = np.std(self.OHC_change * exp_efficiency, axis=0)
 
         else:
             if self.T_percentile_95 is not None:
                 T_med = self.T_change
-                therm_med = self.OHC_change * self.exp_efficiency 
+                therm_med = self.OHC_change * exp_efficiency 
                 
                 T_std = (self.T_percentile_95 - self.T_change) / 1.645
-                therm_std = (self.OHC_percentile_95 - self.OHC_change) * self.exp_efficiency / 1.645
+                therm_std = (self.OHC_percentile_95 - self.OHC_change) * exp_efficiency / 1.645
             
             else:
                 raise ValueError(
@@ -418,7 +427,7 @@ class Global:
         
         # Generate a sample of perfectly correlated timeseries fields of temperature,
         # time-integral temperature and expansion, each of them [realisation,time]
-        z = np.random.standard_normal(self.nt) * self.tcv
+        z = self.rng.standard_normal(self.nt) * self.tcv
 
         # For each quantity, mean + standard deviation * normal random number
         # reshape to [realisation,time]
@@ -428,7 +437,7 @@ class Global:
         return T_ens, therm_ens, T_int_ens, T_int_med  
 
     def project_glacier(
-            self, T_int_med: np.ndarray, T_int_ens: np.ndarray) -> np.ndarray:
+            self, T_int_med: np.ndarray, T_int_ens: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         """Project glacier contribution to GMSLR.
         
         Parameters
@@ -487,7 +496,7 @@ class Global:
             
         r_per_model = self.nm // ngl
         r_remainder = self.nm % ngl
-        r = np.random.standard_normal(self.nm)
+        r = self.rng.standard_normal(self.nm)
         r = r[:, np.newaxis, np.newaxis]
         
         # Precompute mgl and zgl for all glacier methods
@@ -537,7 +546,7 @@ class Global:
         scale=1e-3 # mm to m
         return scale * factor * (np.where(T_int<0, 0, T_int)**exponent)
 
-    def project_greensmb_AR5(self, T_ens: np.ndarray) -> np.ndarray:
+    def project_greensmb_AR5(self, T_ens: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         """Project Greenland SMB contribution to GMSLR.
         
         Parameters
@@ -556,9 +565,9 @@ class Global:
         febound = [1, 1.15] # bounds of uniform pdf of SMB elevation feedback factor
 
         # random log-normal factor
-        fn = np.exp(np.random.standard_normal(self.nm) * fnlogsd)
+        fn = np.exp(self.rng.standard_normal(self.nm) * fnlogsd)
         # elevation feedback factor
-        fe = np.random.sample(self.nm) * (febound[1] - febound[0]) + febound[0]
+        fe = self.rng.random(self.nm) * (febound[1] - febound[0]) + febound[0]
         ff = fn * fe
         
         ztgreen = T_ens - dtgreen
@@ -592,8 +601,7 @@ class Global:
         return (71.5*ztgreen+20.4*(ztgreen**2)+2.8*(ztgreen**3))*self.mSLEoGt
 
     def project_antsmb(
-            self, T_int_ens: np.ndarray, 
-            fraction: np.ndarray=None) -> np.ndarray:
+            self, T_int_ens: np.ndarray, rng: np.random.Generator, fraction: np.ndarray=None) -> np.ndarray:
         """Project Antarctic SMB contribution to GMSLR.
         
         Parameters
@@ -613,13 +621,13 @@ class Global:
         KoKg=[1.1,0.2] # ratio of Antarctic warming to global warming from G&H06
 
         # Generate a distribution of products of the above two factors
-        pcoKg = (pcoK[0] + np.random.standard_normal([self.nm, self.nt]) * pcoK[1]) * \
-            (KoKg[0] + np.random.standard_normal([self.nm, self.nt]) * KoKg[1])
+        pcoKg = (pcoK[0] + self.rng.standard_normal([self.nm, self.nt]) * pcoK[1]) * \
+            (KoKg[0] + self.rng.standard_normal([self.nm, self.nt]) * KoKg[1])
         meansmb = 1923 # model-mean time-mean 1979-2010 Gt yr-1 from 13.3.3.2
         moaoKg = -pcoKg * 1e-2 * meansmb * self.mSLEoGt # m yr-1 of SLE per K of global warming
 
         if fraction is None:
-            fraction = np.random.rand(self.nm, self.nt)
+            fraction = self.rng.random((self.nm, self.nt))
         elif fraction.size != self.nm * self.nt:
             raise ValueError('fraction is the wrong size')
         else:
@@ -634,7 +642,7 @@ class Global:
         antsmb = antsmb.reshape(antsmb.shape[0] * antsmb.shape[1], antsmb.shape[2])
         return antsmb
 
-    def project_greenland_AR6(self, T_ens: np.ndarray) -> np.ndarray:
+    def project_greenland_AR6(self, T_ens: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         """Project Greenland ice-sheet contribution to GMSLR.
         This follows the IPCC AR6 methodology as closely as possible.
         Projections are relative to 1996-2014 baseline.
@@ -659,9 +667,8 @@ class Global:
         trend_std = 0.1
 
         # Calculate trend contribution distribution
-        rng = np.random.default_rng(self.seed)
         trend = truncnorm.ppf(
-            rng.random(self.nm), 
+            self.rng.random(self.nm), 
             a = 0.0,
             b = 99999.9,
             loc = trend_mean,
@@ -687,7 +694,7 @@ class Global:
         r_remainder = self.nm % sle.shape[1]
 
         # We want to distribute the remainder evenly across the models
-        unc = np.random.normal(scale=sigma)
+        unc = self.rng.normal(scale=sigma)
         current_ensemble_idx = 0
         for i in range(sle.shape[1]):
             num_reals_for_model_i = r_per_model + 1 if i < r_remainder else r_per_model
@@ -707,7 +714,7 @@ class Global:
         sle_ens = sle_ens.reshape((self.nm * self.nt, self.nyr))
         return sle_ens
 
-    def project_greendyn_AR5(self) -> np.ndarray:
+    def project_greendyn_AR5(self, rng: np.random.Generator) -> np.ndarray:
         """Project Greenland rapid ice-sheet dynamics contribution to GMSLR.
         
         Returns
@@ -723,9 +730,9 @@ class Global:
             finalrange=[0.014,0.063]
         return self.time_projection(
             0.63*self.fgreendyn, 0.17*self.fgreendyn, 
-            finalrange) + self.fgreendyn*self.dgreen
+            finalrange, rng) + self.fgreendyn*self.dgreen
 
-    def project_antdyn(self, fraction: np.ndarray=None) -> np.ndarray:
+    def project_antdyn(self, rng: np.random.Generator, fraction: np.ndarray=None) -> np.ndarray:
         """Project Antarctic rapid ice-sheet dynamics contribution to GMSLR.
         
         Parameters
@@ -763,7 +770,7 @@ class Global:
 
             # For SMB+dyn during 2005-2010 Table 4.6 gives 0.41+-0.24 mm yr-1 (5-95% range)
             # For dyn at 2100 Chapter 13 gives [-20,185] mm for all scenarios
-        return self.time_projection(0.41, 0.20, final, fraction=fraction) + self.dant
+        return self.time_projection(0.41, 0.20, final, rng, fraction=fraction) + self.dant
 
     def project_landwater(self) -> np.ndarray:
         """Project land water storage contribution to GMSLR.
@@ -790,7 +797,7 @@ class Global:
         lw = lw[:, 1:-1] # Start at 2006, end at 2299
         return lw
   
-    def _project_landwater_ar5(self) -> np.ndarray:
+    def _project_landwater_ar5(self, rng: np.random.Generator) -> np.ndarray:
         """Old projection function. Project land water storage 
         contribution to GMSLR.
         
@@ -804,11 +811,11 @@ class Global:
         nyr=2100-2081+1 # number of years of the time-mean of the final amount
         final = [-0.01,0.09] # AR5
         # final = [0.01, 0.04] # AR6
-        return self.time_projection(0.38, 0.49-0.38, final, nfinal=nyr)
+        return self.time_projection(0.38, 0.49-0.38, final, rng, nfinal=nyr)
 
     def time_projection(
         self, startratemean: float, startratepm: float, final,
-        nfinal: int=1, fraction: np.ndarray=None) -> np.ndarray:
+        rng: np.random.Generator, nfinal: int=1, fraction: np.ndarray=None) -> np.ndarray:
         """Project a quantity which is a quadratic function of time.
         
         Parameters
@@ -834,7 +841,7 @@ class Global:
         time = np.arange(self.end_yr - self.endofhistory) + 1
         
         if fraction is None:
-            fraction = np.random.rand(self.nm, self.nt)
+            fraction = self.rng.random((self.nm, self.nt))
         elif fraction.size != self.nm * self.nt:
             raise ValueError('fraction is the wrong size')
         
