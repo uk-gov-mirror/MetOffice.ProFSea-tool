@@ -354,9 +354,10 @@ class Spatial:
         
         :return dask array containing Antarctic fingerprint
         """
+        fname += ".nc"
+
         # Load in the fingerprint
-        fp_path = Path(self.fingerprint_dir) / os.path.join(fname, ".nc")
-        print(fp_path)
+        fp_path = Path(self.fingerprint_dir) / fname
         fp_ds = xr.open_dataset(fp_path, chunks={})
 
         # Interpolate to (180, 360) grid
