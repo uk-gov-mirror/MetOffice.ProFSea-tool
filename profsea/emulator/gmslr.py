@@ -16,7 +16,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from rich.console import Console
-from scipy.spatial.distance import cdist
 from scipy.stats import norm, truncnorm
 import xarray as xr
 
