@@ -58,7 +58,8 @@ class Spatial:
             output_percentiles: list|np.ndarray=[5, 17, 50, 83, 95],
             output_dir: str|Path=None,
             cmip5_patterns: bool=False,
-            random_seed: int=None
+            random_seed: int=None,
+            sample_spatial: bool=False
         ):
 
         # Start off with some error handling
@@ -93,8 +94,15 @@ class Spatial:
         self.output_dir = output_dir
         self.start_year = 2006
         self.n_years = self.end_year - self.start_year
-        self.n_samples = self.components["expansion"].shape[0]
+        self.sample_spatial = sample_spatial
         self.rng = np.random.default_rng(seed=random_seed)
+
+        if self.sample_spatial:
+            # Get full ensemble
+            self.n_samples = self.components["expansion"].shape[0]
+        else:
+            # Use global trajectories
+            self.n_samples = len(self.output_percentiles)
 
         # Get lat/lon sizes
         sample_pattern_filepath = Path(expansion_patterns_dir) \
@@ -131,25 +139,25 @@ class Spatial:
         console.log('Calculating GIA contribution...')
         nGIA, GIA_vals = self._read_gia_estimates()
         Tdelta = self._calc_baseline_period()
-        num_percs = len(self.output_percentiles)
 
         # Unit series of mm/yr expressed as m/yr
         unit_series = (np.arange(self.n_years) + Tdelta) * 0.001
-        GIA_unit_series = np.ones([num_percs, self.n_years]) * unit_series
+        GIA_unit_series = np.ones([self.n_samples, self.n_years]) * unit_series
 
         # rgiai is an array of random GIA indices the size of the sample years
-        rgiai = self.rng.integers(nGIA, size=num_percs)
+        rgiai = self.rng.integers(nGIA, size=self.n_samples)
 
         GIA_T = da.from_array(GIA_unit_series)
         GIA_vals = da.from_array(GIA_vals)
         GIA_series = GIA_T[:, :, None, None] * GIA_vals[rgiai, None, :, :]
+        GIA_series_out = da.percentile(GIA_series, self.output_percentiles, axis=0)
 
         # Save data in netcdf format (Assuming first dimension is percentile, but can be more general percentile/ensemble)
         xr_dataArray = xr.DataArray(
-            GIA_series, 
-            dims=["samples", "time", "lat", "lon"], 
+            GIA_series_out, 
+            dims=["percentile", "time", "lat", "lon"], 
             coords={
-                "samples": np.arange(num_percs),
+                "percentile": self.output_percentiles,
                 "time": np.arange(self.start_year, self.end_year),
                 "lat": np.arange(-90, 90) + 0.5, 
                 "lon": np.arange(0, 360) + 0.5})
@@ -163,7 +171,7 @@ class Spatial:
         R_file = '_'.join([file_header, 'regional']) + '.nc'
         encoding = {'gia': {"zlib": True, "complevel": 5, "dtype": "float32"}}
         ds.to_netcdf(os.path.join(self.output_dir, R_file), encoding=encoding, compute=True)
-        del GIA_series
+        return GIA_series
 
     def project(self) -> None:
         """
@@ -180,61 +188,76 @@ class Spatial:
         :return: montecarlo_G (global contribution to sea level rise) and
             montecarlo_R (regional contribution to sea level change)
         """  
-        console.log(f"Running with {self.n_samples} ensemble members")
+        console.log(f"Running in {'PROBABILISTIC' if self.sample_spatial else 'STORYLINE'} mode.")
+        console.log(f"Processing {self.n_samples} input trajectories...")
 
-        resamples = self.rng.choice(self.n_samples, size=self.n_samples)  # Preserve correlations across comps
+        if self.sample_spatial:
+            resamples = self.rng.choice(self.n_samples, size=self.n_samples)
+        else:
+            resamples = np.arange(self.n_samples)
 
-        # Calculate GIA contribution and save it out
-        self._calc_gia_contribution()
+        # Calculate GIA contribution. 
+        gia_raw_samples = self._calc_gia_contribution() 
+        
         nFPs, FPlist = self._load_fingerprints()
-        rfpi = self.rng.integers(nFPs, size=self.n_samples)
+
+        if self.sample_spatial:
+            rfpi = self.rng.integers(nFPs, size=self.n_samples)
+        
+        # Initialise the Total array
+        total_montecarlo_R = gia_raw_samples
+
         for comp in track(list(self.components.keys()), description="Calculating components..."):
-            montecarlo_R = da.zeros(
-                (self.n_samples, self.n_years, self.nlat, self.nlon),
-                dtype=np.float32)  # (FPs applied) + GIA
-            montecarlo_G = da.zeros(
-                (self.n_samples, self.n_years, self.nlat, self.nlon),
-                dtype=np.float32)  # (no FPs applied)
-
-            # Load global projections in for the component
-            mc_timeseries = self.components[comp] # shape (mem, time)
+            mc_timeseries = self.components[comp] 
             sampled_mc = mc_timeseries[resamples, :self.n_years]
-            montecarlo_G[:, :] = da.from_array(sampled_mc[:, :, None, None], chunks="auto")
+            montecarlo_G = da.from_array(sampled_mc[:, :, None, None], chunks="auto")
 
+            # Apply regional scaling/fingerprints (Fixes the slice assignment bug)
             if comp == "expansion":
                 sampled_coeffs = self._calc_expansion_contribution()
                 montecarlo_R = montecarlo_G * sampled_coeffs[:, None, :, :]
-                del sampled_coeffs
-
             elif comp == "landwater":
                 landwater_vals = self._calc_landwater_contribution(FPlist[0]["landwater"])
-                montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * landwater_vals[None, None, :, :]
-                del landwater_vals
-
+                montecarlo_R = montecarlo_G * landwater_vals[None, None, :, :]
             elif comp == "greenland":
                 greenland_fp = self._calc_greenland_fingerprint_ar6()
-                montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * greenland_fp[None, None, :, :]
-            
+                montecarlo_R = montecarlo_G * greenland_fp[None, None, :, :]
             elif comp == "wais":
                 wais_fp = self._calc_antarctic_fingerprint(comp)
-                montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * wais_fp[None, None, :, :]
-                del wais_fp
-
+                montecarlo_R = montecarlo_G * wais_fp[None, None, :, :]
             elif comp == "eais":
                 eais_fp = self._calc_antarctic_fingerprint(comp)
-                montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * eais_fp[None, None, :, :]
-                del eais_fp
-
+                montecarlo_R = montecarlo_G * eais_fp[None, None, :, :]
             else:
-                fp_vals = self._calc_fingerprint_contributions(FPlist, comp)
-                montecarlo_R[:, :, :, :] = montecarlo_G[:, :, :, :] * fp_vals[rfpi][:, None, :, :]
-                del fp_vals
+                if self.sample_spatial:
+                    fp_vals = self._calc_fingerprint_contributions(FPlist, comp)
+                    montecarlo_R = montecarlo_G * fp_vals[rfpi][:, None, :, :]
+                else:
+                    fp_vals = self._calc_fingerprint_contributions(FPlist, comp)
+                    fp_mean = da.nanmean(fp_vals, axis=0)
+                    montecarlo_R = montecarlo_G * fp_mean[None, None, :, :]
 
-            montecarlo_R = da.percentile(montecarlo_R, self.output_percentiles, axis=0)
-            montecarlo_R = montecarlo_R.astype(np.float32)
+            # Accumulate overall pattern
+            if total_montecarlo_R is None:
+                total_montecarlo_R = montecarlo_R
+            else:
+                total_montecarlo_R = total_montecarlo_R + montecarlo_R
 
-            # Create the output sea level projections file directory and filename
-            self._save_projections(montecarlo_R, comp)
+            # Calculate and save percentiles for the individual component
+            if self.sample_spatial:
+                comp_percentiles = da.percentile(montecarlo_R, self.output_percentiles, axis=0)
+            else:
+                comp_percentiles = montecarlo_R
+
+            self._save_projections(comp_percentiles.astype(np.float32), comp)
+
+        console.log("Processing total sea-level rise grids...")
+        if self.sample_spatial:
+            total_out = da.percentile(total_montecarlo_R, self.output_percentiles, axis=0)
+        else:
+            total_out = total_montecarlo_R
+
+        self._save_projections(total_out.astype(np.float32), "total")
 
     def _save_projections(self, montecarlo_R: da.array, component: str) -> None:
         """
@@ -299,10 +322,14 @@ class Spatial:
         coeffs = self._load_CMIP6_slopes()
         coeffs = da.roll(coeffs, 180, axis=2)
 
-        rand_samples = self.rng.choice(
-            coeffs.shape[0], size=self.n_samples, replace=True)               
-        rand_coeffs = coeffs[rand_samples, :, :]
-        return rand_coeffs
+        if self.sample_spatial:
+            rand_samples = self.rng.choice(
+                coeffs.shape[0], size=self.n_samples, replace=True)               
+            return coeffs[rand_samples, :, :]
+        else:
+            # Calc pattern ensemble mean
+            mean_coeff = da.nanmean(coeffs, axis=0)
+            return da.broadcast_to(mean_coeff, (self.n_samples, self.nlat, self.nlon))
 
     def _calc_landwater_contribution(self, data: xr.DataArray) -> da.array:
         """
@@ -384,7 +411,7 @@ class Spatial:
 
         # Create a list of lazy dask arrays
         lazy_slopes = [
-            da.from_array(_load_one_slope(f), chunks=(180, 360)) 
+            da.from_array(_load_one_slope(f), chunks=(45, 45)) 
             for f in slope_files]
         slopes_stack = da.stack(lazy_slopes, axis=0)
 
@@ -417,9 +444,9 @@ class Spatial:
             slangen_path = Path(self.fingerprint_dir) / f"{comp}_slangen_nomask.nc"
             spada_path = Path(self.fingerprint_dir) / f"{comp}_spada_nomask.nc"
             klemann_path = Path(self.fingerprint_dir) / f"{comp}_klemann_nomask.nc"
-            slangen_FPs[comp] = xr.open_dataarray(slangen_path, chunks={})
-            spada_FPs[comp] = xr.open_dataarray(spada_path, chunks={})
-            klemann_FPs[comp] = xr.open_dataarray(klemann_path, chunks={})
+            slangen_FPs[comp] = xr.open_dataarray(slangen_path, chunks={"lat": 45, "lon": 45})
+            spada_FPs[comp] = xr.open_dataarray(spada_path, chunks={"lat": 45, "lon": 45})
+            klemann_FPs[comp] = xr.open_dataarray(klemann_path, chunks={"lat": 45, "lon": 45})
 
         FPlist = [slangen_FPs, spada_FPs, klemann_FPs]
         nFPs = len(FPlist)

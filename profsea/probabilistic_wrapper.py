@@ -309,7 +309,7 @@ def plot_component(
 
 def main(args):
     # Set up for main loop
-    percentiles = np.arange(0, 101)
+    percentiles = [0, 5, 17, 50, 83, 95, 100]
     # scenarios = ["ssp119", "ssp126", "ssp245", "ssp370", "ssp534-over", "ssp585"]
     scenarios = [
         'RESCUE-Tier1-Extension-CB1700_2110_2.0',
@@ -388,7 +388,7 @@ def main(args):
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_RESCUE_101mem.nc")
+    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_RESCUE_test.nc")
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
