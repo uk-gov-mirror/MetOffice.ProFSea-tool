@@ -163,9 +163,8 @@ class Spatial:
                 "lon": np.arange(0, 360) + 0.5})
         xr_dataArray.attrs["units"] = "m"
         xr_dataArray.attrs["long_name"] = "Regional GIA sea-level projections"
+        xr_dataArray.attrs["source"] = "ProFSea-Climate v0.1"
         ds = xr_dataArray.to_dataset(name='gia')
-
-        ds.attrs["source"] = "ProFSea-Climate v0.1"
 
         file_header = f"gia_{self.scenario}_projection_{self.end_year}"
         R_file = '_'.join([file_header, 'regional']) + '.nc'
@@ -274,9 +273,8 @@ class Spatial:
                                             "lat": np.arange(-90, 90) + 0.5, "lon": np.arange(0, 360) + 0.5})
         xr_dataArray.attrs["units"] = "m"
         xr_dataArray.attrs["long_name"] = f"Regional {component} sea-level projections"
+        xr_dataArray.attrs["source"] = "ProFSea-Climate v0.1"
         ds = xr_dataArray.to_dataset(name=component)
-
-        ds.attrs["source"] = "ProFSea-Climate v0.1"
 
         file_header = f"{component}_{self.scenario}_projection_{self.end_year}"
         R_file = '_'.join([file_header, 'regional']) + '.nc'
