@@ -10,11 +10,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from rich_argparse import RichHelpFormatter
+from rich.console import Console
 from rich.progress import Progress
 import xarray as xr
 
 from profsea.emulator import Global
 from profsea.utils import sample_members_2D
+
+console = Console()
 
 worker_tas = None
 worker_ohc = None
@@ -133,7 +136,12 @@ def load_fair_forcing(
     return tas.values, ohc.values
 
 
-def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[np.ndarray]:
+def run_fair(
+        baseline_start: int, 
+        baseline_end: int, 
+        scenarios: list, 
+        args: argparse.Namespace
+    ) -> tuple[np.ndarray]:
     f = FAIR()
     f.define_time(1750, 2300, 1)
     f.define_scenarios(scenarios)
@@ -144,7 +152,14 @@ def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[n
     f.define_configs(df_configs.index)
     f.allocate()
 
-    f.fill_from_rcmip()
+    if args.emissions_file:
+        f.fill_from_csv(
+            emissions_file=args.emissions_file,
+            forcing_file=args.forcing_file
+        )
+    else:
+        f.fill_from_rcmip()
+
     f.fill_species_configs('../data/fair/fair-parameters/species_configs_properties_1.4.1.csv')
     f.override_defaults('../data/fair/fair-parameters/calibrated_constrained_parameters_1.4.1.csv')
     initialise(f.concentration, f.species_configs["baseline_concentration"])
@@ -162,6 +177,9 @@ def run_fair(baseline_start: int, baseline_end: int, scenarios: list) -> tuple[n
 
     tas = f.temperature.loc[dict(layer=0, timebounds=np.arange(2006, 2301))] - tas_baseline  # shape (294, 7, 841)
     ohc = f.ocean_heat_content_change.loc[dict(timebounds=np.arange(2006, 2301))] - ohc_baseline
+
+    tas = tas.sel(scenario=scenarios).transpose("scenario", "config", "timebounds")
+    ohc = ohc.sel(scenario=scenarios).transpose("scenario", "config", "timebounds")
     return tas.values, ohc.values
 
 
@@ -197,13 +215,12 @@ def plot_samples(tas: np.ndarray, ohc: np.ndarray) -> None:
     ax.plot(tas.T, color='seagreen', alpha=0.05)
     ax.set_xlabel("Simulation years")
     ax.set_ylabel("GMST ($\degree$C)")
+    ax.plot(np.arange(tas.shape[1]), np.median(tas, axis=0), color="black")
 
     ax = fig.add_subplot(122)
     ax.plot(ohc.T, color='seagreen', alpha=0.05)
     ax.set_xlabel("Simulation years")
     ax.set_ylabel("OHC (J)")
-
-    ax.plot(np.arange(tas.shape[1]), np.median(tas, axis=0), color="black")
 
     fig.savefig("forcing.png", dpi=200)
     plt.show()
@@ -263,42 +280,35 @@ def save_to_netcdf(components: dict, filename: str) -> None:
     # Save with compression
     encoding = {var: {"zlib": True, "complevel": 5} for var in data_vars}
     ds.to_netcdf(filename, encoding=encoding)
-    print(f"Successfully saved full ensemble to {filename}")
+    console.log(f"Successfully saved full ensemble to {filename}")
 
 
 def plot_component(
         ax: plt.Axes, component_dict: dict, component: str, 
         scenarios: list, plot_legend: bool=False) -> None:
     time = np.arange(2006, 2301)
-    # ssp_colours = {
-    #     "ssp119": tuple(np.array([0, 173, 207]) / 255),
-    #     "ssp126": tuple(np.array([23, 60, 102]) / 255),
-    #     "ssp245": tuple(np.array([247, 148, 32]) / 255),
-    #     "ssp370": tuple(np.array([231, 29, 37]) / 255),
-    #     "ssp534-over": tuple(np.array([0, 79, 0]) / 255),
-    #     "ssp585": tuple(np.array([149, 27, 30]) / 255)
-    # }
-    ssp_colours = {
-        "RESCUE-Tier1-Extension-CB1700_2110_2.0": tuple(np.array([0, 173, 207]) / 255),
-        "ssp126": tuple(np.array([23, 60, 102]) / 255),
-        "RESCUE-Tier1-Extension-CB1700_2150_1.5": tuple(np.array([247, 148, 32]) / 255),
-        "ssp370": tuple(np.array([231, 29, 37]) / 255),
-        "RESCUE-Tier1-Extension-CB500st_2110_1.5": tuple(np.array([0, 79, 0]) / 255),
-        "ssp585": tuple(np.array([149, 27, 30]) / 255)
+    scenario_colors = {
+        scenarios[0]: '#800000',
+        scenarios[1]: '#ff0000',
+        scenarios[2]: '#fc7b03',
+        scenarios[3]: '#d3a640',
+        scenarios[4]: '#098740',
+        scenarios[5]: '#0080d0',
+        scenarios[6]: '#100060',
     }
     for scenario in reversed(scenarios):
         ax.fill_between(
             time, 
             component_dict[scenario][component][1], 
             component_dict[scenario][component][3],  
-            color=ssp_colours[scenario], 
+            color=scenario_colors[scenario], 
             edgecolor='none',
             alpha=0.3)
         ax.plot(
             time, 
             component_dict[scenario][component][2], 
             label=f"{scenario}", 
-            color=ssp_colours[scenario])
+            color=scenario_colors[scenario])
 
     ax.set_xlabel("Year")
     ax.set_ylabel("SLE (m)")
@@ -311,14 +321,20 @@ def main(args):
     # Set up for main loop
     percentiles = [0, 5, 17, 50, 83, 95, 100]
     # scenarios = ["ssp119", "ssp126", "ssp245", "ssp370", "ssp534-over", "ssp585"]
-    scenarios = [
-        'RESCUE-Tier1-Extension-CB1700_2110_2.0',
-        'RESCUE-Tier1-Extension-CB1700_2150_1.5',
-        'RESCUE-Tier1-Extension-CB500st_2110_1.5']
+    # scenarios = [
+    #     'RESCUE-Tier1-Extension-CB1700_2110_2.0',
+    #     'RESCUE-Tier1-Extension-CB1700_2150_1.5',
+    #     'RESCUE-Tier1-Extension-CB500st_2110_1.5']
+    if args.emissions_file:
+        scen_df = pd.read_csv(args.emissions_file)
+        scenarios = scen_df["scenario"].unique().tolist()
 
-    emissions_path = "/Users/gregorymunday/Documents/Papers/ProFSea/cmip7-slr/data/cumulative_cmip6_emissions.json"
-    with open(emissions_path) as f:
-        cumulative_emissions = json.load(f)
+    console.log(f"Using scenarios: {scenarios}")
+
+    if "ssp" in scenarios[0].lower():
+        emissions_path = args.cumulative_emissions_file
+        with open(emissions_path) as f:
+            cumulative_emissions = json.load(f)
 
     baseline_start = 1995
     baseline_end = 2014 # inclusive
@@ -338,7 +354,7 @@ def main(args):
     elif args.input.lower() == "fair":
         tas, ohc = load_fair_forcing(args.input_path, scenarios, baseline_start, baseline_end)
     elif args.input.lower() == "run_fair":
-        tas, ohc = run_fair(baseline_start, baseline_end, scenarios)
+        tas, ohc = run_fair(baseline_start, baseline_end, scenarios, args)
     else:
         raise ValueError("Input source not recognised.")
 
@@ -388,7 +404,8 @@ def main(args):
         sampled_components[scenario] = process_global_ensemble(
             components[scenario], percentiles, scenario)
 
-    save_to_netcdf(sampled_components, "probabilistic_projections/global/gmslr_projections_RESCUE_test.nc")
+    output_dir = Path(args.output_dir) / args.output_filename
+    save_to_netcdf(sampled_components, output_dir)
     
     fig = plt.figure(figsize=(16, 8), layout="constrained")
     ax = fig.add_subplot(231)
@@ -404,7 +421,7 @@ def main(args):
     ax = fig.add_subplot(236)
     plot_component(ax, sampled_components, "landwater", scenarios)
 
-    fig.savefig("probabilistic_components_ssps.png", dpi=300)
+    fig.savefig(f"{args.output_dir}{args.output_filename.replace('.nc', '_components.png')}", dpi=300)
     plt.show()
 
 
@@ -412,4 +429,9 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(formatter_class=RichHelpFormatter)
     p.add_argument("--input", default="run_fair", required=False, help="Input climate forcing source (default: FaIR)", type=str)
     p.add_argument("--input_path", required=False, help="Path to input climate forcing", type=str)
+    p.add_argument("--emissions_file", required=False, help="Path to CSV file containing emissions scenarios (optional)", type=str)
+    p.add_argument("--forcing_file", required=False, help="Path to CSV file containing climate forcing time series (optional)", type=str)
+    p.add_argument("--output_dir", default="", help="Directory to save outputs (default: current directory)", type=str)
+    p.add_argument("--output_filename", default="gmslr_projections.nc", help="Filename for output NetCDF (default: gmslr_projections.nc)", type=str)
+    p.add_argument("--cumulative_emissions_file", default="cumulative_cmip6_emissions.json", help="Path to JSON file containing cumulative emissions for SSP scenarios (default: cumulative_cmip6_emissions.json)", type=str)
     main(p.parse_args())
