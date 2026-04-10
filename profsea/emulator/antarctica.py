@@ -14,8 +14,8 @@ class AntarcticaISMIP6:
     The slow response is modelled as the impulse response to temperature
     forcing, convolved with two exponential decay kernels representing
     different ice-sheet response timescales, depending on the region being modelled.
-    The fast response is modelled as a direct proportionality to the integrated 
-    temperature anomaly, while the drift term captures any linear time-dependent 
+    The fast response is modelled as a direct proportionality to the integrated
+    temperature anomaly, while the drift term captures any linear time-dependent
     trends not explained by the temperature forcing.
 
     Parameters provided are for the WAIS, EAIS and AIS Peninsula regions, since each has
