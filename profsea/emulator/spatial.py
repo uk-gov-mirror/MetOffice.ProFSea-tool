@@ -19,31 +19,7 @@ console = Console()
 warnings.filterwarnings("ignore")
 
 class Spatial:
-    """ Spatial sea level rise component emulator.
-
-    Parameters
-    ----------
-    scenario: str
-        Name of the scenario.
-    expansion_patterns_dir: str
-        Direcotry path of regression patterns of thermal expansion component from cmip models.
-    fingerprint_dir: str
-        Direcotry path of GRD (Gravitational, Rotational, Deformational) fingerprint data
-    gia_dir: str
-        Direcotry path of GIA (Glacial Isostatic Adjustment) data
-    components_dir: str
-        Path to global sea-level rise components (output of ProFSea's gmslr module)
-    component_list: list
-        Namelist of components for spatial projections
-    end_year: int
-        End year of the projections.
-    output_percentiles: int
-        List of percentiles for output
-    output_dir: str
-        Path to output directory for saving spatial projections.
-    random_seed: bool
-        Seed for numpy.random.
-    """
+    """ Spatial sea level rise component emulator."""
 
     def __init__(
             self, 
@@ -51,7 +27,7 @@ class Spatial:
             expansion_patterns_dir: str|Path,
             fingerprint_dir: str|Path,
             gia_dir: str|Path,
-            components_dir: str|Path=None, 
+            components_path: str|Path=None, 
             component_list: list=None, 
             end_year: int=2301, 
             baseline_yrs: tuple=(1986, 2005),
@@ -61,9 +37,33 @@ class Spatial:
             random_seed: int=None,
             sample_spatial: bool=False
         ):
+        """
+        Parameters
+        ----------
+        scenario: str
+            Name of the scenario.
+        expansion_patterns_dir: str
+            Direcotry path of regression patterns of thermal expansion component from cmip models.
+        fingerprint_dir: str
+            Direcotry path of GRD (Gravitational, Rotational, Deformational) fingerprint data
+        gia_dir: str
+            Direcotry path of GIA (Glacial Isostatic Adjustment) data
+        components_path: str
+            Path to global sea-level rise components (output of ProFSea's gmslr module)
+        component_list: list
+            Namelist of components for spatial projections
+        end_year: int
+            End year of the projections.
+        output_percentiles: int
+            List of percentiles for output
+        output_dir: str
+            Path to output directory for saving spatial projections.
+        random_seed: bool
+            Seed for numpy.random.
+        """
 
         # Start off with some error handling
-        if not components_dir:
+        if not components_path:
             raise ValueError(
                 "Provide an input directory")
 
@@ -71,10 +71,15 @@ class Spatial:
             raise ValueError(
                 "Provide namelist of global projection components. "
                 "Currently allowed components are expansion, antdyn, "
-                "antsmb, wais, eais, glacier, greenland and landwater")
+                "antsmb, wais, eais, aispen, glacier, greenland and, "
+                "landwater. antdyn and antsmb are the AR5-related dynamic "
+                "and SMB contributions to Antarctic sea-level rise. wais, "
+                "eais and aispen are the ISMIP6-related contributions to "
+                "sea-level rise from the WAIS, EAIS and AIS Peninsula regions "
+                "respectively.")
 
         self.components = {}
-        component_path = Path(components_dir)
+        component_path = Path(components_path)
         ds_component = xr.load_dataset(component_path).sel(scenario=scenario)
         for comp in component_list:
             self.components[comp] = ds_component[comp].data
@@ -87,7 +92,7 @@ class Spatial:
         self.expansion_patterns_dir = expansion_patterns_dir
         self.fingerprint_dir = fingerprint_dir
         self.gia_dir = gia_dir
-        self.components_dir = components_dir
+        self.components_path = components_path
         self.end_year = end_year
         self.baseline_yrs = baseline_yrs
         self.output_percentiles = output_percentiles

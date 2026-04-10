@@ -146,6 +146,7 @@ class Global:
         random_sample: bool = False,
         T_percentile_95: np.ndarray = None,
         OHC_percentile_95: np.ndarray = None,
+        cum_emissions_total: float = None,
         palmer_method: bool = True,
         active_components: list[str] = None,
     ) -> None:
@@ -161,6 +162,7 @@ class Global:
         self.random_sample = random_sample
         self.T_percentile_95 = T_percentile_95
         self.OHC_percentile_95 = OHC_percentile_95
+        self.cum_emissions_total = cum_emissions_total
         self.palmer_method = palmer_method
 
         # First year of AR5 projections
@@ -588,15 +590,6 @@ class Global:
                     dict(name="WAL2001", factor=2.66, exponent=0.730, cvgl=0.206),
                 ]
                 cvgl = 0.20  # unnecessary default
-            elif self.glaciermip == 3:
-                glparm = [
-                    dict(name="GLIMB", factor=3.70, exponent=0.662, cvgl=0.206),
-                    dict(name="GloGEMflow", factor=5.50, exponent=0.564, cvgl=0.188),
-                    dict(name="OGGMv1.6", factor=2.66, exponent=0.730, cvgl=0.206),
-                    dict(
-                        name="PyGEM-OGGMv1.3", factor=2.66, exponent=0.730, cvgl=0.206
-                    ),
-                ]
             else:
                 raise KeyError("glaciermip must be 1 or 2")
         else:
