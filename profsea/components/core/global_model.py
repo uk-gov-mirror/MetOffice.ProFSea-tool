@@ -1,54 +1,115 @@
-import numpy as np
+import concurrent.futures
 from typing import Dict
+
+import numpy as np
+from rich.console import Console
 
 from .state import ClimateState
 from .base import SLRComponent
+from profsea.utils import sample_members_2D
+
+console = Console()
 
 class Global:
     def __init__(
         self,
         components: Dict[str, SLRComponent],
         end_yr: int,
-        seed: int = 42,
         nt: int = 100,
         nm: int = 1000,
+        tcv: float = 1.0,
+        parallel: bool = True,
+        input_ensemble: bool = True,
+        output_percentiles: list | np.ndarray = None,
+        random_sample: bool = False,
     ):
         self.components = components
         self.end_yr = end_yr
         self.nt = nt
         self.nm = nm
+        self.tcv = tcv
+        self.parallel = parallel
+        self.input_ensemble = input_ensemble
+        self.output_percentiles = output_percentiles
+        self.random_sample = random_sample
+
+        self.endofhistory = 2006
+        self.endofAR5 = 2100
+        self.nyr = self.end_yr - self.endofhistory
+
+    def run(
+        self, 
+        scenario: str, 
+        T_change: np.ndarray, 
+        OHC_change: np.ndarray, 
+        member_seed: int = 42
+    ) -> Dict[str, np.ndarray]:
+        """Run the emulator to project GMSLR components for a specific state."""
+        seed_seq = np.random.SeedSequence(member_seed)
+        run_rng = np.random.default_rng(seed_seq)
         
-        self.seed_seq = np.random.SeedSequence(seed)
-        self.rng = np.random.default_rng(self.seed_seq)
+        T_ens, therm_ens, T_int_ens, T_int_med = self._calculate_drivers(
+            T_change, OHC_change, run_rng
+        )
         
-        # Independent RNGs for each provided component
-        child_seeds = self.seed_seq.spawn(len(self.components))
-        self.component_rngs = {
+        # Shared physical correlation state
+        fraction = run_rng.random(self.nm * self.nt)
+        
+        state = ClimateState(
+            scenario=scenario,
+            T_ens=T_ens,
+            T_int_ens=T_int_ens,
+            T_int_med=T_int_med,
+            therm_ens=therm_ens,
+            fraction=fraction,
+            endofAR5=self.endofAR5,
+            endofhistory=self.endofhistory,
+            end_yr=self.end_yr,
+            nyr=self.nyr,
+            nt=self.nt,
+            nm=self.nm
+        )
+
+        # Child RNGs for each component
+        child_seeds = seed_seq.spawn(len(self.components))
+        comp_rngs = {
             name: np.random.default_rng(s) 
             for name, s in zip(self.components.keys(), child_seeds)
         }
 
-    def run(self, scenario: str, T_change: np.ndarray, OHC_change: np.ndarray):
-        T_ens, therm_ens, T_int_ens, T_int_med = self._calculate_drivers(T_change, OHC_change)
-        
-        # Shared correlation arrays
-        fraction = self.rng.random(self.nm * self.nt)
-        
-        # Add context to shared state
-        state = ClimateState(
-            scenario=scenario, T_ens=T_ens, T_int_ens=T_int_ens, 
-            T_int_med=T_int_med, therm_ens=therm_ens, fraction=fraction,
-            nyr=self.end_yr - 2006, nt=self.nt, nm=self.nm
-        )
-
-        # Project components!
         results = {}
-        for name, comp in self.components.items():
-            comp_rng = self.component_rngs[name]
-            results[name] = comp.project(state, comp_rng)
+        if self.parallel:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = {
+                    executor.submit(comp.project, state, comp_rngs[name]): name 
+                    for name, comp in self.components.items()
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    comp_name = futures[future]
+                    try:
+                        results[comp_name] = future.result()
+                    except Exception as e:
+                        raise RuntimeError(f"Component '{comp_name}' failed.") from e
+        else:
+            for name, comp in self.components.items():
+                results[name] = comp.project(state, comp_rngs[name])
 
-        # Calculate total GMSLR
+        # Random Sampling
+        if self.random_sample:
+            random_idx = run_rng.integers(low=0, high=self.nm)
+            for comp_name, data in results.items():
+                if data.ndim > 1:
+                    results[comp_name] = data[random_idx][None, :]
+
+        # Sum GMSLR
         results["gmslr"] = np.sum(list(results.values()), axis=0)
+
+        # Output percentiles
+        if self.output_percentiles is not None:
+            console.log(f"Sampling {len(self.output_percentiles)} members per component...")
+            for comp_name, data in results.items():
+                results[comp_name] = sample_members_2D(data, self.output_percentiles)
+
         return results
 
     def _calculate_drivers(self, T_change: np.ndarray, OHC_change: np.ndarray) -> tuple:
