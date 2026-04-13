@@ -5,7 +5,7 @@ import numpy as np
 from rich.console import Console
 
 from .state import ClimateState
-from .base import SLRComponent
+from .base import Component
 from profsea.utils import sample_members_2D
 
 console = Console()
@@ -13,7 +13,7 @@ console = Console()
 class Global:
     def __init__(
         self,
-        components: Dict[str, SLRComponent],
+        components: Dict[str, Component],
         end_yr: int,
         nt: int = 100,
         nm: int = 1000,
@@ -36,6 +36,42 @@ class Global:
         self.endofhistory = 2006
         self.endofAR5 = 2100
         self.nyr = self.end_yr - self.endofhistory
+        
+
+    def _check_shapes(
+        self, T_change: np.ndarray, OHC_change: np.ndarray, n_time: int
+    ) -> None:
+        """Check that the input arrays have the correct shape.
+
+        Parameters
+        ----------
+        T_change: np.ndarray
+            Array of surface temperature changes.
+        OHC_change: np.ndarray
+            Array of ocean heat content changes.
+        n_time: int
+            Expected number of time steps.
+
+        Returns
+        -------
+        None
+        """
+        if T_change.ndim == 1:
+            T_change = T_change[np.newaxis, :]
+        if OHC_change.ndim == 1:
+            OHC_change = OHC_change[np.newaxis, :]
+
+        if T_change.shape[1] != n_time:
+            # Split over lines for readability
+            raise ValueError(
+                f"T_change should have shape (realisation, time) with time \
+                dimension of length {n_time}. Got {T_change.shape}."
+            )
+        if OHC_change.shape[1] != n_time:
+            raise ValueError(
+                f"OHC_change should have shape (realisation, time) with time \
+                dimension of length {n_time}. Got {OHC_change.shape}."
+            )
 
     def run(
         self, 
@@ -47,6 +83,11 @@ class Global:
         """Run the emulator to project GMSLR components for a specific state."""
         seed_seq = np.random.SeedSequence(member_seed)
         run_rng = np.random.default_rng(seed_seq)
+
+        self._check_shapes(T_change, OHC_change, self.nyr)
+
+        if self.input_ensemble:
+            self.nt = T_change.shape[0]
         
         T_ens, therm_ens, T_int_ens, T_int_med = self._calculate_drivers(
             T_change, OHC_change, run_rng
@@ -112,7 +153,7 @@ class Global:
 
         return results
 
-    def _calculate_drivers(self, T_change: np.ndarray, OHC_change: np.ndarray) -> tuple:
+    def _calculate_drivers(self, T_change: np.ndarray, OHC_change: np.ndarray, rng: np.random.Generator) -> tuple:
         """Calculate the drivers of GMSLR: temperature change and
         thermosteric sea level rise.
 
@@ -130,7 +171,7 @@ class Global:
         # Sensitivity of thermosteric SLR to ocean heat content change
         # From Turner et al. (2023)
         exp_efficiency = (
-            self.rng.normal(loc=0.113, scale=0.013, size=self.nt)[:, None] * 1e-24
+            rng.normal(loc=0.113, scale=0.013, size=self.nt)[:, None] * 1e-24
         )  # m/YJ
 
         if self.input_ensemble:
@@ -170,7 +211,7 @@ class Global:
 
         # Generate a sample of perfectly correlated timeseries fields of temperature,
         # time-integral temperature and expansion, each of them [realisation,time]
-        z = self.rng.standard_normal(self.nt) * self.tcv
+        z = rng.standard_normal(self.nt) * self.tcv
 
         # For each quantity, mean + standard deviation * normal random number
         # reshape to [realisation,time]
