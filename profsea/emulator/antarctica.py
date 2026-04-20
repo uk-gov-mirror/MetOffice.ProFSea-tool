@@ -56,7 +56,7 @@ class AntarcticaISMIP6:
         np.ndarray
             Slow response term for each sample (shape: n_samples x n_time).
         """
-        n_time = tas.shape[0]
+        _, n_time = tas.shape
 
         # Two slow coeffs
         alphas1 = params[:, 0]
@@ -67,20 +67,29 @@ class AntarcticaISMIP6:
 
         # Impulse response function for timescale 1
         decay_factors1 = np.exp(-np.arange(n_time) * dt / tau1) * (dt / tau1)
-        rate_delayed1 = fftconvolve(forcing_base, decay_factors1, mode="full")[:n_time]
-        t_conv1 = np.cumsum(rate_delayed1, axis=0) * dt
-        term_slow1 = alphas1[:, None] * t_conv1[None, :]
+        rate_delayed1 = fftconvolve(
+            forcing_base, decay_factors1[None, :], mode="full", axes=1
+        )[:, :n_time]
+        t_conv1 = np.cumsum(rate_delayed1, axis=1) * dt
+        term_slow1 = alphas1[:, None, None] * t_conv1[None, :, :]
 
         # Impulse response function for timescale 2
         decay_factors2 = np.exp(-np.arange(n_time) * dt / tau2) * (dt / tau2)
-        rate_delayed2 = fftconvolve(forcing_base, decay_factors2, mode="full")[:n_time]
-        t_conv2 = np.cumsum(rate_delayed2, axis=0) * dt
-        term_slow2 = alphas2[:, None] * t_conv2[None, :]
+        rate_delayed2 = fftconvolve(
+            forcing_base, decay_factors2[None, :], mode="full", axes=1
+        )[:, :n_time]
+        t_conv2 = np.cumsum(rate_delayed2, axis=1) * dt
+        term_slow2 = alphas2[:, None, None] * t_conv2[None, :, :]
 
         return term_slow1 + term_slow2  # Slow terms are linearly combined
 
     def predict(
-        self, tas: np.ndarray, dt: float = 1.0, display_progress=True, seed=None
+        self,
+        tas: np.ndarray,
+        dt: float = 1.0,
+        display_progress=True,
+        seed=None,
+        model_idx=None,
     ) -> np.ndarray:
         """
         Projects AIS response using empirical additive bootstrapping.
@@ -99,25 +108,33 @@ class AntarcticaISMIP6:
         np.ndarray
             Projected AIS contributions (shape: n_models x n_samples x n_time).
         """
-        tas = np.squeeze(tas)
-        n_time = len(tas)
+        # Ensure array is 2D
+        if tas.ndim == 1:
+            tas = tas[None, :]
+
+        nt, n_time = tas.shape
         physical_time = np.arange(n_time) * dt
 
         # RNG
         rng = np.random.default_rng(seed)
 
         # Integrated temperature term
-        tas_int = np.cumsum(tas) * dt
-
-        # Output shape: (n_models, n_samples, n_time)
-        all_preds = np.zeros((self.n_models, self.n_samples, n_time))
+        tas_int = np.cumsum(tas, axis=1) * dt
 
         # Shape assumed: (n_models, n_training_scenarios, 4)
         all_residuals = self.param_ds.param_residuals.values
         n_train_scenarios = all_residuals.shape[1]
 
+        if model_idx is not None:
+            # Run a specific model
+            models_to_run = [model_idx]
+        else:
+            models_to_run = range(self.n_models)
+
+        all_preds = np.zeros((len(models_to_run), self.n_samples, nt, n_time))
+
         for model in track(
-            range(self.n_models),
+            models_to_run,
             description="Projecting AIS response... ",
             disable=not display_progress,
         ):
@@ -143,12 +160,19 @@ class AntarcticaISMIP6:
 
             # Fast response term
             betas = total_params[:, 2]
-            term_fast = betas[:, None] * tas_int[None, :]
+            term_fast = betas[:, None, None] * tas_int[None, :, :]
 
             # Drift term
             drift_coeffs = total_params[:, 3]
-            term_drift = drift_coeffs[:, None] * physical_time[None, :]
+            term_drift = drift_coeffs[:, None, None] * physical_time[None, None, :]
 
-            all_preds[model, :, :] = term_fast + term_slow + term_drift
+            if model_idx is not None:
+                all_preds[0, :, :, :] = term_fast + term_slow + term_drift
+            else:
+                all_preds[model, :, :, :] = term_fast + term_slow + term_drift
+
+        all_preds = (
+            all_preds.squeeze()
+        )  # Remove extra dimension if only one model is run
 
         return all_preds

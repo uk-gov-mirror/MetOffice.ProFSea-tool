@@ -304,6 +304,7 @@ class Global:
                 f"OHC_change should have shape (realisation, time) with time \
                 dimension of length {n_time}. Got {OHC_change.shape}."
             )
+        return T_change, OHC_change
 
     def project(
         self,
@@ -319,7 +320,9 @@ class Global:
         self.cum_emissions_total = cum_emissions_total
 
         # Check input shapes are correct
-        self.check_shapes(self.T_change, self.OHC_change, self.nyr)
+        self.T_change, self.OHC_change = self.check_shapes(
+            self.T_change, self.OHC_change, self.nyr
+        )
 
         if self.input_ensemble:
             self.nt = self.T_change.shape[0]
@@ -529,16 +532,25 @@ class Global:
         return T_ens, therm_ens, T_int_ens, T_int_med
 
     def project_antarctica_ismip6(self, T_ens: np.ndarray, rng) -> np.ndarray:
-        wais_raw = self.wais_model.predict(T_ens.squeeze(), display_progress=False)
-        eais_raw = self.eais_model.predict(T_ens.squeeze(), display_progress=False)
-        aispen_raw = self.aispen_model.predict(T_ens.squeeze(), display_progress=False)
-
         random_ais_idx = rng.integers(low=0, high=43)
 
-        # Match the correct output shape
-        self.wais = np.repeat(wais_raw[random_ais_idx, :, :], self.nt, axis=0)
-        self.eais = np.repeat(eais_raw[random_ais_idx, :, :], self.nt, axis=0)
-        self.aispen = np.repeat(aispen_raw[random_ais_idx, :, :], self.nt, axis=0)
+        wais_raw = self.wais_model.predict(
+            T_ens, model_idx=random_ais_idx, display_progress=False
+        )
+        eais_raw = self.eais_model.predict(
+            T_ens, model_idx=random_ais_idx, display_progress=False
+        )
+        aispen_raw = self.aispen_model.predict(
+            T_ens, model_idx=random_ais_idx, display_progress=False
+        )
+
+        # Flatten the sample and ensemble axes to match (nm * nt, nyr)
+        target_shape = (self.nm * self.nt, self.nyr)
+
+        self.wais = wais_raw.reshape(target_shape)
+        self.eais = eais_raw.reshape(target_shape)
+        self.aispen = aispen_raw.reshape(target_shape)
+
         return self.wais + self.eais + self.aispen
 
     def project_glacier(
