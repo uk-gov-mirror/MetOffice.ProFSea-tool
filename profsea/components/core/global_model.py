@@ -10,6 +10,7 @@ from profsea.utils import sample_members_2D
 
 console = Console()
 
+
 class Global:
     def __init__(
         self,
@@ -36,7 +37,6 @@ class Global:
         self.endofhistory = 2006
         self.endofAR5 = 2100
         self.nyr = self.end_yr - self.endofhistory
-        
 
     def _check_shapes(
         self, T_change: np.ndarray, OHC_change: np.ndarray, n_time: int
@@ -74,11 +74,11 @@ class Global:
             )
 
     def run(
-        self, 
-        scenario: str, 
-        T_change: np.ndarray, 
-        OHC_change: np.ndarray, 
-        member_seed: int = 42
+        self,
+        scenario: str,
+        T_change: np.ndarray,
+        OHC_change: np.ndarray,
+        member_seed: int = 42,
     ) -> Dict[str, np.ndarray]:
         """Run the emulator to project GMSLR components for a specific state."""
         seed_seq = np.random.SeedSequence(member_seed)
@@ -88,14 +88,14 @@ class Global:
 
         if self.input_ensemble:
             self.nt = T_change.shape[0]
-        
+
         T_ens, therm_ens, T_int_ens, T_int_med = self._calculate_drivers(
             T_change, OHC_change, run_rng
         )
-        
+
         # Shared physical correlation state
         fraction = run_rng.random(self.nm * self.nt)
-        
+
         state = ClimateState(
             scenario=scenario,
             T_ens=T_ens,
@@ -108,13 +108,13 @@ class Global:
             end_yr=self.end_yr,
             nyr=self.nyr,
             nt=self.nt,
-            nm=self.nm
+            nm=self.nm,
         )
 
         # Child RNGs for each component
         child_seeds = seed_seq.spawn(len(self.components))
         comp_rngs = {
-            name: np.random.default_rng(s) 
+            name: np.random.default_rng(s)
             for name, s in zip(self.components.keys(), child_seeds)
         }
 
@@ -122,7 +122,7 @@ class Global:
         if self.parallel:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 futures = {
-                    executor.submit(comp.project, state, comp_rngs[name]): name 
+                    executor.submit(comp.project, state, comp_rngs[name]): name
                     for name, comp in self.components.items()
                 }
                 for future in concurrent.futures.as_completed(futures):
@@ -142,18 +142,24 @@ class Global:
                 if data.ndim > 1:
                     results[comp_name] = data[random_idx][None, :]
 
-        # Sum GMSLR
-        results["gmslr"] = np.sum(list(results.values()), axis=0)
-
         # Output percentiles
         if self.output_percentiles is not None:
-            console.log(f"Sampling {len(self.output_percentiles)} members per component...")
+            console.log(
+                f"Sampling {len(self.output_percentiles)} members per component..."
+            )
             for comp_name, data in results.items():
                 results[comp_name] = sample_members_2D(data, self.output_percentiles)
 
         return results
 
-    def _calculate_drivers(self, T_change: np.ndarray, OHC_change: np.ndarray, rng: np.random.Generator) -> tuple:
+    def sum_components(self, components: Dict[str, np.ndarray]) -> np.ndarray:
+        """Sum the components to get total GMSLR."""
+        components["gmslr"] = np.sum(list(components.values()), axis=0)
+        return components["gmslr"]
+
+    def _calculate_drivers(
+        self, T_change: np.ndarray, OHC_change: np.ndarray, rng: np.random.Generator
+    ) -> tuple:
         """Calculate the drivers of GMSLR: temperature change and
         thermosteric sea level rise.
 
@@ -175,17 +181,11 @@ class Global:
         )  # m/YJ
 
         if self.input_ensemble:
-            # Check if dimensions are the right way around
-            if T_change.shape[1] != self.nyr:
-                T_change = T_change.T
-            if OHC_change.shape[1] != self.nyr:
-                OHC_change = OHC_change.T
-
-            T_med = np.percentile(T_change, 50, axis=0)
+            T_med = sample_members_2D(T_change, [50])
             T_std = np.std(T_change, axis=0)
 
-            therm_med = np.percentile(OHC_change, 50, axis=0) * exp_efficiency
-            therm_std = np.std(OHC_change * exp_efficiency, axis=0)
+            therm_med = sample_members_2D(OHC_change, [50]) * exp_efficiency
+            therm_std = np.std(OHC_change, axis=0) * exp_efficiency
 
         else:
             if self.T_percentile_95 is not None:

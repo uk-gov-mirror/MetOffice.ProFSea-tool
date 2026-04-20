@@ -14,4 +14,4 @@ model = Global(
 )
 
 projections = model.run(scenario="test", T_change=np.arange(295).reshape(1, -1), OHC_change=np.arange(295).reshape(1, -1), member_seed=42)
-
+gmslr = model.sum_components(projections)
