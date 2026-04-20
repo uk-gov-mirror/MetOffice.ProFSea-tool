@@ -9,7 +9,10 @@ class ClimateState:
     T_int_ens: np.ndarray
     T_int_med: np.ndarray
     therm_ens: np.ndarray
-    fraction: np.ndarray # shared correlation array for AntSMB/AntDyn
+    fraction: np.ndarray  # shared correlation array
+    endofAR5: int
+    endofhistory: int
+    end_yr: int
     nyr: int
     nt: int
     nm: int
