@@ -25,6 +25,7 @@ class Global:
         parallel: bool = True,
         input_ensemble: bool = True,
         output_percentiles: list | np.ndarray = None,
+        palmer_method: bool = True,
         random_sample: bool = False,
     ):
         self.components = components
@@ -35,6 +36,7 @@ class Global:
         self.parallel = parallel
         self.input_ensemble = input_ensemble
         self.output_percentiles = output_percentiles
+        self.palmer_method = palmer_method
         self.random_sample = random_sample
 
         self.endofhistory = 2006
@@ -106,6 +108,7 @@ class Global:
             T_int_med=T_int_med,
             therm_ens=therm_ens,
             fraction=fraction,
+            palmer_method=self.palmer_method,
             endofAR5=self.endofAR5,
             endofhistory=self.endofhistory,
             end_yr=self.end_yr,
