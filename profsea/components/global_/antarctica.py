@@ -2,7 +2,12 @@ from pathlib import Path
 from rich.progress import track
 import numpy as np
 from scipy.signal import fftconvolve
+from scipy.stats import norm
 import xarray as xr
+
+from profsea.components.core.base import Component
+from profsea.components.core.global_model import ClimateState
+from profsea.components.core.time_projection import time_projection
 
 
 class AntarcticaISMIP6:
@@ -152,3 +157,119 @@ class AntarcticaISMIP6:
             all_preds[model, :, :] = term_fast + term_slow + term_drift
 
         return all_preds
+
+
+class AntarcticaDynAR5(Component):
+    """
+    AR5 Antarctic ice-dynamics response to warming, as a function of
+    cumulative emissions or scenario. Following the implementation
+    as given by Jonathan Gregory's ar5gmslr (https://github.com/JonathanGregory/ar5gmslr).
+
+    Requires cumulative emissions total to be specified for a given scenario,
+    or will default to scenario-based regression, based on rcp scenarios.
+    """
+
+    def __init__(
+        self, d_ant: float = (2.37 + 0.13) * 1e-3, cum_emissions_total: float = None
+    ):
+        self.d_ant = d_ant
+        self.cum_emissions_total = cum_emissions_total
+
+    def project(self, state: ClimateState, rng: np.random.Generator) -> np.ndarray:
+        """Project Antarctic rapid ice-sheet dynamics contribution to GMSLR.
+
+        Parameters
+            ----------
+            fraction: np.ndarray
+            Random numbers for the dynamic contribution.
+
+        Returns
+        -------
+        np.ndarray
+            Antarctic rapid ice-sheet dynamics contribution to GMSLR.
+        """
+        # This is a naive solution to calculating the AntDyn contribution
+        # for any given scenario. Basically linear regressions through existing data
+        # to find rough relationship between cumulative emissions and AntDyn contribution.
+        if self.cum_emissions_total:
+            upper = (0.000110 * self.cum_emissions_total) + 0.375  # in metres
+            lower = (1.363e-05 * self.cum_emissions_total) + 0.0392  # in metres
+            final = [lower, upper]
+        else:
+            lcoeff = dict(
+                rcp26=[-2.881, 0.923, 0.000],
+                rcp45=[-2.676, 0.850, 0.000],
+                rcp60=[-2.660, 0.870, 0.000],
+                rcp85=[-2.399, 0.860, 0.000],
+            )
+            lcoeff = lcoeff[state.scenario]
+
+            ascale = norm.ppf(state.fraction)
+            final = np.exp(lcoeff[2] * ascale**2 + lcoeff[1] * ascale + lcoeff[0])
+            final = final.reshape(state.nm, state.nt)
+        return (
+            time_projection(state, 0.41, 0.20, final, rng, fraction=state.fraction)
+            + self.d_ant
+        )
+
+
+class AntarcticaSMBAR5(Component):
+    """
+    AR5 Antarctic SMB contribution to GMSLR, as a function of global
+    mean surface temperature change.
+
+    Following the implementation as given by Jonathan Gregory's ar5gmslr
+    (https://github.com/JonathanGregory/ar5gmslr).
+    """
+
+    def __init__(self):
+        # Conversion factor for Gt to m SLE
+        self.mSLEoGt = 1e12 / 3.61e14 * 1e-3
+
+    def project(
+        self,
+        state: ClimateState,
+        rng: np.random.Generator,
+    ) -> np.ndarray:
+        """Project Antarctic SMB contribution to GMSLR.
+
+        Parameters
+        ----------
+        T_int_ens: np.ndarray
+            Ensemble of time-integral temperature anomaly timeseries.
+        fraction: np.ndarray
+            Random numbers for the SMB-dynamic feedback.
+
+        Returns
+        -------
+        antsmb: np.ndarray
+            Antarctic SMB contribution to GMSLR.
+        """
+        # The following are [mean,SD]
+        pcoK = [5.1, 1.5]  # % change in Ant SMB per K of warming from G&H06
+        KoKg = [1.1, 0.2]  # ratio of Antarctic warming to global warming from G&H06
+
+        # Generate a distribution of products of the above two factors
+        pcoKg = (pcoK[0] + rng.standard_normal([state.nm, state.nt]) * pcoK[1]) * (
+            KoKg[0] + rng.standard_normal([state.nm, state.nt]) * KoKg[1]
+        )
+        meansmb = 1923  # model-mean time-mean 1979-2010 Gt yr-1 from 13.3.3.2
+        moaoKg = (
+            -pcoKg * 1e-2 * meansmb * self.mSLEoGt
+        )  # m yr-1 of SLE per K of global warming
+
+        if state.fraction is None:
+            fraction = rng.random((state.nm, state.nt))
+        elif state.fraction.size != state.nm * state.nt:
+            raise ValueError("fraction is the wrong size")
+        else:
+            fraction = state.fraction.reshape((state.nm, state.nt))
+
+        smax = 0.35  # max value of S in 13.SM.1.5
+        ainterfactor = 1 - fraction * smax
+
+        z = moaoKg * ainterfactor
+        z = z[:, :, np.newaxis]
+        antsmb = z * state.T_int_ens
+        antsmb = antsmb.reshape(antsmb.shape[0] * antsmb.shape[1], antsmb.shape[2])
+        return antsmb
