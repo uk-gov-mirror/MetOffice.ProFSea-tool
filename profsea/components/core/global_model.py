@@ -169,6 +169,8 @@ class Global:
 
         Parameters
         ----------
+        components: Dict[str, np.ndarray]
+            Dictionary of component names and their corresponding arrays.
         output_directory: str
             Directory to save components to.
         scenario_name: str
