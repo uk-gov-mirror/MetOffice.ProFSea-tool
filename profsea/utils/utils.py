@@ -29,3 +29,28 @@ def interpolate(data: da.array, lats: int, lons: int) -> np.ndarray:
         lat=target_lat, lon=target_lon, method="linear").data
 
     return data_interp
+
+
+def check_shapes(self, array: np.ndarray, n_time: int) -> None:
+        """Check that the input arrays have the correct shape.
+
+        Parameters
+        ----------
+        array: np.ndarray
+            Input array of some kind.
+        n_time: int
+            Expected number of time steps.
+
+        Returns
+        -------
+        None
+        """
+        if array.ndim == 1:
+            array = array[np.newaxis, :]
+
+        if array.shape[1] != n_time:
+            # Split over lines for readability
+            raise ValueError(
+                f"Array should have shape (realisation, time) with time \
+                dimension of length {n_time}. Got {array.shape}."
+            )

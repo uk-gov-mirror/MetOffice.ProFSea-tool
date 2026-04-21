@@ -8,7 +8,6 @@ class ClimateState:
     T_ens: np.ndarray
     T_int_ens: np.ndarray
     T_int_med: np.ndarray
-    therm_ens: np.ndarray
     fraction: np.ndarray  # shared correlation array
     palmer_method: bool # whether to use Palmer method for time projection
     endofAR5: int

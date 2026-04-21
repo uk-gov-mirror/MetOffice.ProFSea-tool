@@ -9,7 +9,7 @@ import xarray as xr
 
 from .state import ClimateState
 from .base import Component
-from profsea.utils import sample_members_2D
+from profsea.utils import sample_members_2D, check_shapes
 
 console = Console()
 
@@ -43,59 +43,23 @@ class Global:
         self.endofAR5 = 2100
         self.nyr = self.end_yr - self.endofhistory
 
-    def _check_shapes(
-        self, T_change: np.ndarray, OHC_change: np.ndarray, n_time: int
-    ) -> None:
-        """Check that the input arrays have the correct shape.
-
-        Parameters
-        ----------
-        T_change: np.ndarray
-            Array of surface temperature changes.
-        OHC_change: np.ndarray
-            Array of ocean heat content changes.
-        n_time: int
-            Expected number of time steps.
-
-        Returns
-        -------
-        None
-        """
-        if T_change.ndim == 1:
-            T_change = T_change[np.newaxis, :]
-        if OHC_change.ndim == 1:
-            OHC_change = OHC_change[np.newaxis, :]
-
-        if T_change.shape[1] != n_time:
-            # Split over lines for readability
-            raise ValueError(
-                f"T_change should have shape (realisation, time) with time \
-                dimension of length {n_time}. Got {T_change.shape}."
-            )
-        if OHC_change.shape[1] != n_time:
-            raise ValueError(
-                f"OHC_change should have shape (realisation, time) with time \
-                dimension of length {n_time}. Got {OHC_change.shape}."
-            )
-
     def run(
         self,
         scenario: str,
         T_change: np.ndarray,
-        OHC_change: np.ndarray,
         member_seed: int = 42,
     ) -> Dict[str, np.ndarray]:
         """Run the emulator to project GMSLR components for a specific state."""
         seed_seq = np.random.SeedSequence(member_seed)
         run_rng = np.random.default_rng(seed_seq)
 
-        self._check_shapes(T_change, OHC_change, self.nyr)
+        check_shapes(T_change, self.nyr)
 
         if self.input_ensemble:
             self.nt = T_change.shape[0]
 
         T_ens, therm_ens, T_int_ens, T_int_med = self._calculate_drivers(
-            T_change, OHC_change, run_rng
+            T_change, run_rng
         )
 
         # Shared physical correlation state
@@ -106,7 +70,6 @@ class Global:
             T_ens=T_ens,
             T_int_ens=T_int_ens,
             T_int_med=T_int_med,
-            therm_ens=therm_ens,
             fraction=fraction,
             palmer_method=self.palmer_method,
             endofAR5=self.endofAR5,
@@ -207,7 +170,7 @@ class Global:
         ds.to_netcdf(os.path.join(output_dir, f"{scenario_name}_global.nc"))
 
     def _calculate_drivers(
-        self, T_change: np.ndarray, OHC_change: np.ndarray, rng: np.random.Generator
+        self, T_change: np.ndarray, rng: np.random.Generator
     ) -> tuple:
         """Calculate the drivers of GMSLR: temperature change and
         thermosteric sea level rise.
@@ -223,29 +186,14 @@ class Global:
         T_int_med: np.ndarray
             Median of time-integral temperature anomalies.
         """
-        # Sensitivity of thermosteric SLR to ocean heat content change
-        # From Turner et al. (2023)
-        exp_efficiency = (
-            rng.normal(loc=0.113, scale=0.013, size=self.nt)[:, None] * 1e-24
-        )  # m/YJ
-
         if self.input_ensemble:
             T_med = sample_members_2D(T_change, [50])
             T_std = np.std(T_change, axis=0)
-
-            therm_med = sample_members_2D(OHC_change, [50]) * exp_efficiency
-            therm_std = np.std(OHC_change, axis=0) * exp_efficiency
-
         else:
             if self.T_percentile_95 is not None:
                 T_med = T_change
-                therm_med = OHC_change * exp_efficiency
 
                 T_std = (self.T_percentile_95 - T_change) / 1.645
-                therm_std = (
-                    (self.OHC_percentile_95 - OHC_change) * exp_efficiency / 1.645
-                )
-
             else:
                 raise ValueError(
                     "If input_ensemble is False, and T_change and OHC_change "
@@ -265,6 +213,5 @@ class Global:
         # For each quantity, mean + standard deviation * normal random number
         # reshape to [realisation,time]
         T_ens = z[:, np.newaxis] * T_std + T_med
-        therm_ens = z[:, np.newaxis] * therm_std + therm_med
         T_int_ens = z[:, np.newaxis] * T_int_std + T_int_med
-        return T_ens, therm_ens, T_int_ens, T_int_med
+        return T_ens, T_int_ens, T_int_med
