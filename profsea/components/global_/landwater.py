@@ -36,7 +36,7 @@ class LandwaterAR6(Component):
 
         # Interpolate to annual projections
         interp_ds = lw_ds.interp(
-            years=np.arange(2005, state.end_yr+1, 1), method="linear"
+            years=np.arange(2005, 2301, 1), method="linear"
         ).squeeze()
         lw = interp_ds["sea_level_change"].values * 1e-3  # mm to m
 
