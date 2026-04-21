@@ -103,6 +103,10 @@ class GreenlandAR6(Component):
 
 
 class GreenlandSMBAR5(Component):
+    """
+    AR5 Greenland SMB contribution to GMSLR.
+    """
+
     def __init__(self):
         self.fgreendyn = 0.5
         self.dgreen = (3.21 - 0.30) * 1e-3
