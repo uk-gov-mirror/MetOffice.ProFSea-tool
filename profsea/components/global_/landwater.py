@@ -36,7 +36,7 @@ class LandwaterAR6(Component):
 
         # Interpolate to annual projections
         interp_ds = lw_ds.interp(
-            years=np.arange(2005, state.end_yr, 1), method="linear"
+            years=np.arange(2005, state.end_yr+1, 1), method="linear"
         ).squeeze()
         lw = interp_ds["sea_level_change"].values * 1e-3  # mm to m
 
@@ -47,7 +47,7 @@ class LandwaterAR6(Component):
         remainder = (state.nt * state.nm) % lw.shape[0]
         lw = np.vstack([np.tile(lw, (full_repeats, 1)), lw[:remainder]])
         lw = lw.reshape(state.nt * state.nm, lw.shape[1])
-        lw = lw[:, 1:]  # Start at 2006, end at end_yr
+        lw = lw[:, 1:state.nyr+1]  # Start at 2006, end at end_yr
         
         return lw
 

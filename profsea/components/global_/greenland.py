@@ -90,9 +90,11 @@ class GreenlandAR6(Component):
         sle_ens += trend
 
         # Persist 2100 rate of change
-        rate = np.diff(sle_ens, axis=2)[:, :, 94]
-        sle_ens[:, :, 95:] = sle_ens[:, :, 94:95] + (
-            rate[:, :, None] * time_delta[None, None, 1 : state.nyr - 94]
-        )
+        if(state.end_yr >= 2100):
+            rate = np.diff(sle_ens, axis=2)[:, :, 94]
+            sle_ens[:, :, 95:] = sle_ens[:, :, 94:95] + (
+                rate[:, :, None] * time_delta[None, None, 1 : state.nyr - 94]
+            )
+        
         sle_ens = sle_ens.reshape((state.nm * state.nt, state.nyr))
         return sle_ens
