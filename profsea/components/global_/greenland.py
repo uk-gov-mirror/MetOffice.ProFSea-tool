@@ -7,6 +7,7 @@ from scipy.stats import truncnorm
 
 from profsea.components.core.base import Component
 from profsea.components.core.global_model import ClimateState
+from profsea.components.core.time_projection import time_projection
 
 
 @functools.lru_cache(maxsize=1)
@@ -186,7 +187,7 @@ class GreenlandDynAR5(Component):
         self.fgreendyn = 0.5
         self.dgreen = (3.21 - 0.30) * 1e-3
 
-    def project_greendyn_AR5(
+    def project(
         self, state: ClimateState, rng: np.random.Generator
     ) -> np.ndarray:
         """Project Greenland rapid ice-sheet dynamics contribution to GMSLR.
@@ -210,7 +211,7 @@ class GreenlandDynAR5(Component):
         else:
             finalrange = [0.014, 0.063]
         return (
-            self.time_projection(
+            time_projection(
                 0.63 * self.fgreendyn, 0.17 * self.fgreendyn, finalrange, rng
             )
             + self.fgreendyn * self.dgreen
