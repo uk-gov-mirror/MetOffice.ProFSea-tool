@@ -31,7 +31,7 @@ class GreenlandAR6(Component):
         np.ndarray
             Total GIS contribution to GMSLR.
         """
-        df = load_greenland_calibration()
+        df = self.df
         b0 = df["b0"].values[None, :, None]
         b1 = df["b1"].values[None, :, None]
         b2 = df["b2"].values[None, :, None]
