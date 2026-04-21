@@ -138,7 +138,7 @@ class GreenlandSMBAR5(Component):
 
         greensmb = ff[:, np.newaxis, np.newaxis] * self._fettweis(ztgreen)
 
-        if self.palmer_method and state.end_yr > state.endofAR5:
+        if state.palmer_method and state.end_yr > state.endofAR5:
             greensmb[:, :, 95:] = greensmb[:, :, 94:95]
 
         greensmb = np.cumsum(greensmb, axis=-1)
@@ -187,9 +187,7 @@ class GreenlandDynAR5(Component):
         self.fgreendyn = 0.5
         self.dgreen = (3.21 - 0.30) * 1e-3
 
-    def project(
-        self, state: ClimateState, rng: np.random.Generator
-    ) -> np.ndarray:
+    def project(self, state: ClimateState, rng: np.random.Generator) -> np.ndarray:
         """Project Greenland rapid ice-sheet dynamics contribution to GMSLR.
 
         Parameters
@@ -212,7 +210,7 @@ class GreenlandDynAR5(Component):
             finalrange = [0.014, 0.063]
         return (
             time_projection(
-                0.63 * self.fgreendyn, 0.17 * self.fgreendyn, finalrange, rng
+                state, 0.63 * self.fgreendyn, 0.17 * self.fgreendyn, finalrange, rng
             )
             + self.fgreendyn * self.dgreen
         )
