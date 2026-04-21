@@ -8,6 +8,7 @@ from scipy.stats import truncnorm
 from profsea.components.core.base import Component
 from profsea.components.core.global_model import ClimateState
 
+
 @functools.lru_cache(maxsize=1)
 def load_greenland_calibration():
     """Loads the CSV once and keeps it in memory."""
@@ -90,11 +91,127 @@ class GreenlandAR6(Component):
         sle_ens += trend
 
         # Persist 2100 rate of change
-        if(state.end_yr >= 2100):
+        if state.end_yr >= 2100:
             rate = np.diff(sle_ens, axis=2)[:, :, 94]
             sle_ens[:, :, 95:] = sle_ens[:, :, 94:95] + (
                 rate[:, :, None] * time_delta[None, None, 1 : state.nyr - 94]
             )
-        
+
         sle_ens = sle_ens.reshape((state.nm * state.nt, state.nyr))
         return sle_ens
+
+
+class GreenlandSMBAR5(Component):
+    def __init__(self):
+        self.fgreendyn = 0.5
+        self.dgreen = (3.21 - 0.30) * 1e-3
+        self.mSLEoGt = 1e12 / 3.61e14 * 1e-3
+
+    def project(self, state: ClimateState, rng: np.random.Generator) -> np.ndarray:
+        """Project Greenland SMB contribution to GMSLR.
+
+        Parameters
+        ----------
+        state: ClimateState
+            State object containing relevant information for the projection.
+        rng: np.random.Generator
+            Random number generator.
+
+        Returns
+        -------
+        greensmb: np.ndarray
+            Greenland SMB contribution to GMSLR.
+
+        """
+        dtgreen = -0.146  # Delta_T of Greenland ref period wrt AR5 ref period
+        fnlogsd = 0.4  # random methodological error of the log factor
+        febound = [1, 1.15]  # bounds of uniform pdf of SMB elevation feedback factor
+
+        # random log-normal factor
+        fn = np.exp(rng.standard_normal(state.nm) * fnlogsd)
+        # elevation feedback factor
+        fe = rng.random(state.nm) * (febound[1] - febound[0]) + febound[0]
+        ff = fn * fe
+
+        ztgreen = state.T_ens - dtgreen
+
+        greensmb = ff[:, np.newaxis, np.newaxis] * self._fettweis(ztgreen)
+
+        if self.palmer_method and state.end_yr > state.endofAR5:
+            greensmb[:, :, 95:] = greensmb[:, :, 94:95]
+
+        greensmb = np.cumsum(greensmb, axis=-1)
+
+        greensmb += (1 - self.fgreendyn) * self.dgreen
+
+        greensmb = greensmb.reshape(
+            greensmb.shape[0] * greensmb.shape[1], greensmb.shape[2]
+        )
+        return greensmb
+
+    def _fettweis(self, ztgreen: np.ndarray) -> np.ndarray:
+        """Calculate Greenland SMB in m yr-1 SLE from global mean temperature
+        anomaly, using Eq 2 of Fettweis et al. (2013).
+
+        Parameters
+        ----------
+        ztgreen: np.ndarray
+            Global mean temperature anomaly.
+
+        Returns
+        -------
+        np.ndarray
+            Greenland SMB in m yr-1 SLE.
+        """
+        return (
+            71.5 * ztgreen + 20.4 * (ztgreen**2) + 2.8 * (ztgreen**3)
+        ) * self.mSLEoGt
+
+
+class GreenlandDynAR5(Component):
+    """
+    AR5 Greenland ice-sheet dynamics contribution to GMSLR.
+
+    NOTE: This is not scenario independent. It will run with either rcp85/ssp585 related projections,
+    or will default to a temperature independent projection based on AR5.
+
+    This is based on Jonathan Gregory's AR5 implmentation,
+    which can be found at https://github.com/JonathanGregory/ar5gmslr
+
+    """
+
+    def __init__(
+        self,
+    ):
+        self.fgreendyn = 0.5
+        self.dgreen = (3.21 - 0.30) * 1e-3
+
+    def project_greendyn_AR5(
+        self, state: ClimateState, rng: np.random.Generator
+    ) -> np.ndarray:
+        """Project Greenland rapid ice-sheet dynamics contribution to GMSLR.
+
+        Parameters
+        ----------
+        state: ClimateState
+            State object containing relevant information for the projection.
+        rng: np.random.Generator
+            Random number generator.
+
+        Returns
+        -------
+        np.ndarray
+            Greenland rapid ice-sheet dynamics contribution to GMSLR.
+        """
+        # For SMB+dyn during 2005-2010 Table 4.6 gives 0.63+-0.17 mm yr-1 (5-95% range)
+        # For dyn at 2100 Chapter 13 gives [20,85] mm for rcp85, [14,63] mm otherwise
+        if state.scenario in ["rcp85", "ssp585"]:
+            finalrange = [0.020, 0.085]
+        else:
+            finalrange = [0.014, 0.063]
+        return (
+            self.time_projection(
+                0.63 * self.fgreendyn, 0.17 * self.fgreendyn, finalrange, rng
+            )
+            + self.fgreendyn * self.dgreen
+        )
