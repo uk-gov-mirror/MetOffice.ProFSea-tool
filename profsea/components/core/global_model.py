@@ -162,7 +162,9 @@ class Global:
         components["gmslr"] = np.sum(list(components.values()), axis=0)
         return components["gmslr"]
 
-    def save_components(self, output_dir: str, scenario_name: str) -> None:
+    def save_components(
+        self, components: Dict[str, np.ndarray], output_dir: str, scenario_name: str
+    ) -> None:
         """Save all SLR components as .npy files to a directory.
 
         Parameters
@@ -182,16 +184,18 @@ class Global:
         # Save data in netcdf format
         ds = xr.Dataset()
         member_dim = "percentile" if self.output_percentiles is not None else "member"
-        for name, component in self.results.items():
+        for name, component in components.items():
             xr_dataArray = xr.DataArray(
                 component,
                 dims=[member_dim, "time"],
-                coords = {
+                coords={
                     member_dim: self.output_percentiles
                     if self.output_percentiles is not None
-                    else np.arange(component.shape[0]), # handle if no output percentiles
+                    else np.arange(
+                        component.shape[0]
+                    ),  # handle if no output percentiles
                     "time": np.arange(2006, component.shape[1] + 2006),
-                }
+                },
             )
             xr_dataArray.attrs["units"] = "m"
             ds[name] = xr_dataArray
