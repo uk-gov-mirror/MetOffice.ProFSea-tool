@@ -362,6 +362,7 @@ class Global:
             raise RuntimeError(
                 "No active components were evaluated. Cannot compute GMSLR."
             )
+
         self.gmslr = np.sum(components_to_sum, axis=0)
 
         # Output percentiles
@@ -958,12 +959,14 @@ class Global:
 
         del interp_ds
 
-        # Go from shape (20000, 294) to (101000, 294)
+        # Go from shape (20000, 296) to (101000, 296)
         full_repeats = (self.nt * self.nm) // lw.shape[0]
         remainder = (self.nt * self.nm) % lw.shape[0]
         lw = np.vstack([np.tile(lw, (full_repeats, 1)), lw[:remainder]])
         lw = lw.reshape(self.nt * self.nm, lw.shape[1])
-        lw = lw[:, 1:]  # Start at 2006, end at 2299
+
+        lw = lw[:, 1:self.nyr+1]  # Start at 2006, end at final year
+
         return lw
 
     def project_landwater_ar5(self, rng: np.random.Generator) -> np.ndarray:
