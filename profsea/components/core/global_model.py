@@ -1,8 +1,11 @@
 import concurrent.futures
+from pathlib import Path
+import os
 from typing import Dict
 
 import numpy as np
 from rich.console import Console
+import xarray as xr
 
 from .state import ClimateState
 from .base import Component
@@ -153,12 +156,55 @@ class Global:
             for comp_name, data in results.items():
                 results[comp_name] = sample_members_2D(data, self.output_percentiles)
 
+        self.results = results
+
         return results
 
     def sum_components(self, components: Dict[str, np.ndarray]) -> np.ndarray:
         """Sum the components to get total GMSLR."""
         components["gmslr"] = np.sum(list(components.values()), axis=0)
         return components["gmslr"]
+
+    def save_components(
+        self, components: Dict[str, np.ndarray], output_dir: str, scenario_name: str
+    ) -> None:
+        """Save all SLR components as .npy files to a directory.
+
+        Parameters
+        ----------
+        components: Dict[str, np.ndarray]
+            Dictionary of component names and their corresponding arrays.
+        output_directory: str
+            Directory to save components to.
+        scenario_name: str
+            Name of the scenario you've run the emulator for.
+
+        Returns
+        -------
+        None
+        """
+        # Create directory if it doesn't exist
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Save data in netcdf format
+        ds = xr.Dataset()
+        member_dim = "percentile" if self.output_percentiles is not None else "member"
+        for name, component in components.items():
+            xr_dataArray = xr.DataArray(
+                component,
+                dims=[member_dim, "time"],
+                coords={
+                    member_dim: self.output_percentiles
+                    if self.output_percentiles is not None
+                    else np.arange(
+                        component.shape[0]
+                    ),  # handle if no output percentiles
+                    "time": np.arange(2006, component.shape[1] + 2006),
+                },
+            )
+            xr_dataArray.attrs["units"] = "m"
+            ds[name] = xr_dataArray
+        ds.to_netcdf(os.path.join(output_dir, f"{scenario_name}_global.nc"))
 
     def _calculate_drivers(
         self, T_change: np.ndarray, OHC_change: np.ndarray, rng: np.random.Generator

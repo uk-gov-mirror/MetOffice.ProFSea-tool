@@ -31,7 +31,7 @@ class GreenlandAR6(Component):
         np.ndarray
             Total GIS contribution to GMSLR.
         """
-        df = load_greenland_calibration()
+        df = self.df
         b0 = df["b0"].values[None, :, None]
         b1 = df["b1"].values[None, :, None]
         b2 = df["b2"].values[None, :, None]
@@ -90,9 +90,11 @@ class GreenlandAR6(Component):
         sle_ens += trend
 
         # Persist 2100 rate of change
-        rate = np.diff(sle_ens, axis=2)[:, :, 94]
-        sle_ens[:, :, 95:] = sle_ens[:, :, 94:95] + (
-            rate[:, :, None] * time_delta[None, None, 1 : state.nyr - 94]
-        )
+        if(state.end_yr >= 2100):
+            rate = np.diff(sle_ens, axis=2)[:, :, 94]
+            sle_ens[:, :, 95:] = sle_ens[:, :, 94:95] + (
+                rate[:, :, None] * time_delta[None, None, 1 : state.nyr - 94]
+            )
+        
         sle_ens = sle_ens.reshape((state.nm * state.nt, state.nyr))
         return sle_ens
