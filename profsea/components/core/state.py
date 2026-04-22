@@ -17,3 +17,4 @@ class ClimateState:
     nyr: int
     nt: int
     nm: int
+    glaciermip: bool | int

@@ -22,6 +22,7 @@ class Global:
         nt: int = 100,
         nm: int = 1000,
         tcv: float = 1.0,
+        glaciermip: bool | int = 2,
         parallel: bool = True,
         input_ensemble: bool = True,
         output_percentiles: list | np.ndarray = None,
@@ -34,6 +35,7 @@ class Global:
         self.nm = nm
         self.tcv = tcv
         self.parallel = parallel
+        self.glaciermip = glaciermip
         self.input_ensemble = input_ensemble
         self.output_percentiles = output_percentiles
         self.palmer_method = palmer_method
@@ -115,6 +117,7 @@ class Global:
             nyr=self.nyr,
             nt=self.nt,
             nm=self.nm,
+            glaciermip=self.glaciermip,
         )
 
         # Child RNGs for each component
@@ -168,7 +171,7 @@ class Global:
     def save_components(
         self, components: Dict[str, np.ndarray], output_dir: str, scenario_name: str
     ) -> None:
-        """Save all SLR components as .npy files to a directory.
+        """Save SLR components as nc files to a directory.
 
         Parameters
         ----------
