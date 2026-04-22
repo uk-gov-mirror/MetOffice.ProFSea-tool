@@ -168,7 +168,7 @@ class Global:
     def save_components(
         self, components: Dict[str, np.ndarray], output_dir: str, scenario_name: str
     ) -> None:
-        """Save all SLR components as .npy files to a directory.
+        """Save SLR components as nc files to a directory.
 
         Parameters
         ----------
