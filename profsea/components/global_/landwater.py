@@ -6,6 +6,7 @@ import xarray as xr
 
 from profsea.components.core.base import Component
 from profsea.components.core.global_model import ClimateState
+from profsea.components.core.time_projection import time_projection
 
 
 @functools.lru_cache(maxsize=1)
@@ -54,3 +55,26 @@ class LandwaterAR6(Component):
         lw = lw[:, 1 : state.nyr + 1]  # Start at 2006, end at end_yr
 
         return lw
+
+class LandwaterAR5(Component):
+
+    def __init__(self):
+        self.startratemean = 0.38
+        self.startratepm = 0.49 - 0.38
+
+    def project(self, state: ClimateState, rng: np.random.Generator) -> np.ndarray:
+        """Old projection function. Project land water storage
+        contribution to GMSLR.
+
+        Returns
+        -------
+        np.ndarray
+            Land water storage contribution to GMSLR.
+        """
+        
+        # The rate at start is the one for 1993-2010 from the budget table.
+        # The final amount is the mean for 2081-2100.
+        nyr = state.endofAR5 - 2081 + 1  # number of years of the time-mean of the final amount
+        final = [-0.01, 0.09]  # AR5
+        
+        return time_projection(state, self.startratemean, self.startratepm, final, rng, nfinal=nyr)
