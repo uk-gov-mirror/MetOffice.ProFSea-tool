@@ -58,9 +58,7 @@ class Global:
         if self.input_ensemble:
             self.nt = T_change.shape[0]
 
-        T_ens, therm_ens, T_int_ens, T_int_med = self._calculate_drivers(
-            T_change, run_rng
-        )
+        T_ens, T_int_ens, T_int_med = self._calculate_drivers(T_change, run_rng)
 
         # Shared physical correlation state
         fraction = run_rng.random(self.nm * self.nt)

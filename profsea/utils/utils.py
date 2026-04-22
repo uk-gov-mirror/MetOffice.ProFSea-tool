@@ -31,7 +31,7 @@ def interpolate(data: da.array, lats: int, lons: int) -> np.ndarray:
     return data_interp
 
 
-def check_shapes(self, array: np.ndarray, n_time: int) -> None:
+def check_shapes(array: np.ndarray, n_time: int) -> None:
         """Check that the input arrays have the correct shape.
 
         Parameters
