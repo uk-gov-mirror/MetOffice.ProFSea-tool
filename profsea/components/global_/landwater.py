@@ -58,6 +58,10 @@ class LandwaterAR6(Component):
 
 class LandwaterAR5(Component):
 
+    def __init__(self):
+        self.startratemean = 0.38
+        self.startratepm = 0.49 - 0.38
+
     def project(self, state: ClimateState, rng: np.random.Generator) -> np.ndarray:
         """Old projection function. Project land water storage
         contribution to GMSLR.
@@ -73,4 +77,4 @@ class LandwaterAR5(Component):
         nyr = state.endofAR5 - 2081 + 1  # number of years of the time-mean of the final amount
         final = [-0.01, 0.09]  # AR5
         
-        return self.time_projection(0.38, 0.49 - 0.38, final, rng, nfinal=nyr)
+        return time_projection(state, self.startratemean, self.startratepm, final, rng, nfinal=nyr)
