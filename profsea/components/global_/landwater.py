@@ -2,20 +2,24 @@ import functools
 
 from pathlib import Path
 import numpy as np
-import pandas as pd
 import xarray as xr
-from scipy.stats import truncnorm
 
 from profsea.components.core.base import Component
 from profsea.components.core.global_model import ClimateState
 
+
 @functools.lru_cache(maxsize=1)
 def load_landwater_projection():
     """Loads the NetCDF once and keeps the VALUES in memory."""
-    path = Path(__file__).parent.parent/ "aux_data" / "ssp_global_landwater_projections.nc"
+    path = (
+        Path(__file__).parent.parent
+        / "aux_data"
+        / "ssp_global_landwater_projections.nc"
+    )
     with xr.open_dataset(path) as ds:
         ds.load()
     return ds
+
 
 class LandwaterAR6(Component):
     def __init__(self):
@@ -47,8 +51,6 @@ class LandwaterAR6(Component):
         remainder = (state.nt * state.nm) % lw.shape[0]
         lw = np.vstack([np.tile(lw, (full_repeats, 1)), lw[:remainder]])
         lw = lw.reshape(state.nt * state.nm, lw.shape[1])
-        lw = lw[:, 1:state.nyr+1]  # Start at 2006, end at end_yr
-        
-        return lw
+        lw = lw[:, 1 : state.nyr + 1]  # Start at 2006, end at end_yr
 
-    
+        return lw
