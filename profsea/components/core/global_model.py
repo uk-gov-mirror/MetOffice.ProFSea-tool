@@ -22,7 +22,6 @@ class Global:
         nt: int = 100,
         nm: int = 1000,
         tcv: float = 1.0,
-        glaciermip: bool | int = 2,
         parallel: bool = True,
         input_ensemble: bool = True,
         output_percentiles: list | np.ndarray = None,
@@ -35,7 +34,6 @@ class Global:
         self.nm = nm
         self.tcv = tcv
         self.parallel = parallel
-        self.glaciermip = glaciermip
         self.input_ensemble = input_ensemble
         self.output_percentiles = output_percentiles
         self.palmer_method = palmer_method
@@ -117,7 +115,6 @@ class Global:
             nyr=self.nyr,
             nt=self.nt,
             nm=self.nm,
-            glaciermip=self.glaciermip,
         )
 
         # Child RNGs for each component

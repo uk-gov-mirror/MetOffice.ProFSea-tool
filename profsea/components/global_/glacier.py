@@ -10,6 +10,9 @@ from profsea.components.core.base import Component
 from profsea.components.core.global_model import ClimateState
 
 class Glacier(Component):
+
+    def __init__(self, glaciermip: int=2):
+        self.glaciermip = glaciermip
     
     def project(self, state: ClimateState, rng: np.random.Generator) -> np.ndarray:
         """Project glacier contribution to GMSLR.
@@ -29,7 +32,7 @@ class Glacier(Component):
         glmass = 412.0 - 96.3  # initial glacier mass, used to set a limit, from Tab 4.2
         glmass = 1e-3 * glmass  # m SLE
 
-        if state.glaciermip == 1:
+        if self.glaciermip == 1:
             glparm = [
                 dict(name="SLA2012", factor=3.39, exponent=0.722, cvgl=0.15),
                 dict(name="MAR2012", factor=4.35, exponent=0.658, cvgl=0.13),
@@ -37,7 +40,7 @@ class Glacier(Component):
                 dict(name="RAD2014", factor=6.21, exponent=0.648, cvgl=0.17),
                 dict(name="GloGEM", factor=2.88, exponent=0.753, cvgl=0.13),
             ]
-        elif state.glaciermip == 2:
+        elif self.glaciermip == 2:
             glparm = [
                 dict(name="GLIMB",   factor=3.70, exponent=0.662, cvgl=0.206),
                 dict(name="GloGEM",  factor=4.08, exponent=0.716, cvgl=0.161),
@@ -47,7 +50,7 @@ class Glacier(Component):
                 dict(name="RAD2014", factor=5.18, exponent=0.709, cvgl=0.135),
                 dict(name="WAL2001", factor=2.66, exponent=0.730, cvgl=0.206),
             ]
-        elif not state.glaciermip:
+        elif not self.glaciermip:
             glparm = [
                 dict(name="Marzeion", factor=4.96, exponent=0.685, cvgl=0.20),
                 dict(name="Radic",    factor=5.45, exponent=0.676, cvgl=0.20),
@@ -82,7 +85,7 @@ class Glacier(Component):
             ]
         )
         cvgl_all = np.array(
-            [glparm[igl]["cvgl"] if state.glaciermip else cvgl for igl in range(ngl)]
+            [glparm[igl]["cvgl"] if self.glaciermip else cvgl for igl in range(ngl)]
         )
 
         # Make an ensemble of projections for each method
